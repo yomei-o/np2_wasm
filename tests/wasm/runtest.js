@@ -59,6 +59,42 @@ const cfg = [
   'USEFMGEN=' + (process.env.FMGEN || 'false'),
 ].concat(fontRom ? ['fontfile=/font.rom'] : []).join('\n') + '\n';
 
+// PC-98 keyboard scan codes, from the NKEY_* list in keystat.h.
+const KEYS = {
+	esc: 0x00, ret: 0x1c, enter: 0x1c, space: 0x34, tab: 0x0f, bs: 0x0e,
+	up: 0x3a, left: 0x3b, right: 0x3c, down: 0x3d,
+	rollup: 0x36, rolldown: 0x37, ins: 0x38, del: 0x39, home: 0x3e, help: 0x3f,
+	xfer: 0x35,
+	f1: 0x62, f2: 0x63, f3: 0x64, f4: 0x65, f5: 0x66,
+	f6: 0x67, f7: 0x68, f8: 0x69, f9: 0x6a, f10: 0x6b,
+	'1': 0x01, '2': 0x02, '3': 0x03, '4': 0x04, '5': 0x05,
+	'6': 0x06, '7': 0x07, '8': 0x08, '9': 0x09, '0': 0x0a,
+	a: 0x1d, b: 0x2d, c: 0x2b, d: 0x1f, e: 0x12, f: 0x20, g: 0x21, h: 0x22,
+	i: 0x17, j: 0x23, k: 0x24, l: 0x25, m: 0x2f, n: 0x2e, o: 0x18, p: 0x19,
+	q: 0x10, r: 0x13, s: 0x1e, t: 0x14, u: 0x16, v: 0x2c, w: 0x11, x: 0x2a,
+	y: 0x15, z: 0x29,
+};
+
+// KEYS="3000:ret,9000:ret" - at 3s and 9s after startup, tap Return.
+// A step may hold several keys: "5000:ret+space". Codes may also be given
+// as raw hex, e.g. "5000:0x1c".
+function parseKeyScript(spec) {
+	if (!spec) return [];
+	return spec.split(',').map((step) => {
+		const [at, keys] = step.split(':');
+		return {
+			at: Number(at),
+			codes: (keys || '').split('+').map((k) => {
+				const name = k.trim().toLowerCase();
+				if (name in KEYS) return KEYS[name];
+				const v = Number(name);
+                                if (!Number.isFinite(v)) throw new Error('unknown key: ' + k);
+				return v;
+			}),
+		};
+	});
+}
+
 const mountArgs = [];
 let mod = null;
 let crashed = null;
@@ -195,6 +231,16 @@ createNP2({
   printErr: (t) => console.log('[err] ' + t),
 }).then((M) => {
   mod = M;
+  const script = parseKeyScript(process.env.KEYS);
+  for (const step of script) {
+    setTimeout(() => {
+      for (const code of step.codes) M.ccall('np2probe_key', null, ['number', 'number'], [code, 1]);
+      setTimeout(() => {
+        for (const code of step.codes) M.ccall('np2probe_key', null, ['number', 'number'], [code, 0]);
+      }, Number(process.env.KEY_HOLD || 80));
+      console.log('key @' + step.at + 'ms: ' + step.codes.map((c) => '0x' + c.toString(16)).join('+'));
+    }, step.at);
+  }
   if (process.env.WAV) {
     // Give the guest a moment to get going, then record the rest of the run.
     setTimeout(() => {
@@ -217,6 +263,28 @@ setTimeout(() => {
     const ok = mod.ccall('np2probe_canopen', 'number', ['string'], [n]);
     console.log('biospath resolve ' + n + ' -> "' + pp + '" openable=' + ok);
   }
+  // EGC: egc_reset() leaves these defaults, so anything else means the
+  // guest drove the blitter. vramop bit 1 is VOPBIT_EGC.
+  const hex = (v) => '0x' + (v >>> 0).toString(16).padStart(4, '0');
+  const egc = {
+    access: mod.ccall('np2probe_egc_access', 'number', [], []),
+    fgbg: mod.ccall('np2probe_egc_fgbg', 'number', [], []),
+    ope: mod.ccall('np2probe_egc_ope', 'number', [], []),
+    mask: mod.ccall('np2probe_egc_mask', 'number', [], []),
+    leng: mod.ccall('np2probe_egc_leng', 'number', [], []),
+    sft: mod.ccall('np2probe_egc_sft', 'number', [], []),
+  };
+  const defaults = { access: 0xfff0, fgbg: 0x00ff, ope: 0, mask: 0xffff,
+                     leng: 0x000f, sft: 0 };
+  const touched = Object.keys(defaults).filter((k) => egc[k] !== defaults[k]);
+  const vramop = mod.ccall('np2probe_vramop', 'number', [], []);
+  console.log('grcg.chip=' + mod.ccall('np2probe_grcg_chip', 'number', [], [])
+              + ' (3=EGC)  vramop=' + hex(vramop)
+              + ' EGC mode ' + ((vramop & 2) ? 'ON' : 'off'));
+  console.log('EGC regs ' + Object.entries(egc).map(([k, v]) => k + '=' + hex(v)).join(' '));
+  console.log(touched.length
+    ? 'EGC: guest wrote ' + touched.join(', ') + ' -> blitter in use'
+    : 'EGC: all registers still at reset defaults -> not used in this run');
   const caps = mod.ccall('np2probe_rhythmcaps', 'number', [], []);
   console.log('rhythm samples loaded: 0x' + caps.toString(16)
               + (caps === 0x3f ? ' (all six)' : caps === 0 ? ' (none)' : ' (partial)'));

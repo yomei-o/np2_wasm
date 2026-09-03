@@ -89,7 +89,7 @@ em++ -O3 -DNDEBUG \
 	-s USE_SDL=0 -s GL_ENABLE_GET_PROC_ADDRESS=1 --profiling-funcs \
 	-s MODULARIZE=1 -s EXPORT_NAME=createNP2 \
 	-s "EXPORTED_RUNTIME_METHODS=['FS','callMain','ENV','HEAPU8','ccall','UTF8ToString']" \
-	-s "EXPORTED_FUNCTIONS=['_main','_np2probe_textvram','_np2probe_mem','_np2probe_screen','_np2probe_screen_width','_np2probe_screen_height','_np2probe_screen_bpp','_np2probe_screen_pitch','_np2probe_recstart','_np2probe_recstop','_np2probe_isrecording','_np2probe_rhythmcaps','_np2probe_biosresolve','_np2probe_canopen']" \
+	-s "EXPORTED_FUNCTIONS=['_main','_np2probe_textvram','_np2probe_mem','_np2probe_screen','_np2probe_screen_width','_np2probe_screen_height','_np2probe_screen_bpp','_np2probe_screen_pitch','_np2probe_recstart','_np2probe_recstop','_np2probe_isrecording','_np2probe_rhythmcaps','_np2probe_biosresolve','_np2probe_canopen','_np2probe_egc_access','_np2probe_egc_fgbg','_np2probe_egc_ope','_np2probe_egc_mask','_np2probe_egc_leng','_np2probe_egc_sft','_np2probe_vramop','_np2probe_grcg_chip','_np2probe_key']" \
 	"$OUT"/obj/*.o @"$OUT/objs.rsp" -o "$OUT/np2test.js"
 
 cp "$ROOT/tests/wasm/runtest.js" "$OUT/runtest.js"

@@ -54,6 +54,14 @@ RESULT: ran with no trap, 25 non-empty text rows
 | `FMGEN` | `USEFMGEN`: `true` for fmgen, `false` for np2's opngen (default `false`) |
 | `GRCG_EGC` via `GRCG` | `3` for EGC (default) |
 | `EXTMEM` | `ExMemory` in MB (default 1) |
+| `KEYS` | key script, e.g. `6000:ret,14000:ret` - at 6s and 14s tap Return |
+| `KEY_HOLD` | ms to hold each key down (default 80) |
+
+`KEYS` steps are `<ms>:<key>[+<key>...]`, comma separated, with the times
+measured from startup. Key names are the `NKEY_*` set from keystat.h
+(`ret`, `esc`, `space`, `up`/`down`/`left`/`right`, `f1`-`f10`, letters,
+digits); a raw code like `0x1c` also works. Keys go in through
+`keystat_senddata()`, the same queue the real keyboard feeds.
 
 Positional arguments are disk images, mounted into FDD1 then FDD2, exactly as
 `np2_main()` treats its own positional arguments.
@@ -82,7 +90,9 @@ audio callback, and `SUPPORT_WAVEREC` recording is driven from there too.
 `np2probe_recstart()`/`np2probe_recstop()` for the WAV recorder,
 `np2probe_rhythmcaps()` for which `2608_*.wav` loaded, and
 `np2probe_biosresolve()`/`np2probe_canopen()` for debugging where np2 looks for
-BIOS-directory files. It is linked only into this test binary.
+BIOS-directory files, `np2probe_key()` to inject keyboard scan codes, and the
+`np2probe_egc_*()`/`np2probe_vramop()`/`np2probe_grcg_chip()` set to report
+whether the guest ever turned the EGC blitter on and programmed it. It is linked only into this test binary.
 
 `--profiling-funcs` keeps the wasm name section, so a trap in either the test
 binary or the shipped one names the function instead of printing a byte offset.

@@ -13,6 +13,9 @@
 #include <sound/sound.h>
 #include <sound/rhythm.h>
 #include <dosio.h>
+#include <io/iocore.h>
+#include <vram/vram.h>
+#include <keystat.h>
 
 /* Text VRAM: character codes at even offsets from 0xa0000, attributes from
  * 0xa2000. See vram/maketext.c. */
@@ -101,4 +104,28 @@ int np2probe_canopen(const char *fname)
 	}
 	file_close(fh);
 	return 1;
+}
+
+/* EGC state. egc_reset() leaves access=0xfff0, fgbg=0x00ff, mask=0xffff,
+ * leng=0x000f, srcmask=0xffff and everything else zero, so a difference from
+ * that means the guest programmed the blitter. egc_w16() also ignores writes
+ * unless the EGC bit of vramop.operate is set, so that bit says whether EGC
+ * mode was ever switched on. */
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_access(void)  { return egc.access; }
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_fgbg(void)    { return egc.fgbg; }
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_ope(void)     { return egc.ope; }
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_mask(void)    { return egc.mask.w; }
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_leng(void)    { return egc.leng; }
+EMSCRIPTEN_KEEPALIVE int np2probe_egc_sft(void)     { return egc.sft; }
+EMSCRIPTEN_KEEPALIVE int np2probe_vramop(void)      { return vramop.operate; }
+EMSCRIPTEN_KEEPALIVE int np2probe_grcg_chip(void)   { return grcg.chip; }
+
+/* Inject a raw PC-98 keyboard scan code. keystat_senddata() queues it the way
+ * the real keyboard would; the NKEY_* values in keystat.h are those codes
+ * (ESC 0x00, RETURN 0x1c, SPACE 0x34, UP 0x3a, LEFT 0x3b, RIGHT 0x3c,
+ * DOWN 0x3d, F1 0x62 ...), with bit 7 set for the break. */
+EMSCRIPTEN_KEEPALIVE
+void np2probe_key(int code, int down)
+{
+	keystat_senddata((REG8)(down ? (code & 0x7f) : ((code & 0x7f) | 0x80)));
 }
