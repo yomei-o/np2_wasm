@@ -19,7 +19,7 @@ kanji render.
 
 | | |
 |---|---|
-| Disks included | FreeDOS(98) boot floppy, VZ Editor 1.6, LSI C-86 3.30c 試食版 |
+| Disks included | FreeDOS(98) boot floppy; VZ Editor 1.6 with LHA, UnZip and Zip on one disk; LSI C-86 3.30c 試食版 |
 | Your own images | Added through the page, kept in IndexedDB, assigned to FDD1/FDD2/SCSI0/SCSI1 |
 | Hard disks | One button builds a `.hdn` SCSI image up to 100MB, partitioned and FAT16 formatted, ready to use with no BTNPART or FORMAT |
 | Getting files in and out | A "ディスクの中身" panel runs [`tools/pc98fat`](tools/pc98fat) as its own wasm module: browse an image, download a file out, upload a file in |

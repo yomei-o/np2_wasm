@@ -85,7 +85,8 @@ const PC98_IPL = 'bios/pc98_ipl.bin';
 // be deleted.
 const BUNDLED = [
 	{ name: 'fd98_2hd.img', url: 'disk/fd98_2hd.img', note: 'FreeDOS(98) 起動FD' },
-	{ name: 'vz_98.xdf', url: 'disk/vz_98.xdf', note: 'VZ Editor 1.6' },
+	{ name: 'tools_98.xdf', url: 'disk/tools_98.xdf',
+	  note: 'VZ Editor 1.6 + LHA / UnZip / Zip' },
 	{ name: 'lsic_98.xdf', url: 'disk/lsic_98.xdf', note: 'LSI C-86 3.30c 試食版' },
 ];
 
