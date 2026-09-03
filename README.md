@@ -7,11 +7,34 @@ NP2kai is a PC-9801 series emulator<br>
 
 **https://yomei-o.github.io/np2_wasm/**
 
-This fork exists to keep the Emscripten (wasm) port building and running. It
-boots [FreeDOS(98)](https://github.com/lpproj/fdkernel) from a floppy image
-with no BIOS ROM, and everything the wasm build links against - SDL2, libpng,
-zlib - is vendored under `deps/`, so `scripts/build-wasm.sh` needs nothing but
-the Emscripten SDK. See the Emscripten section below.
+This fork exists to keep the Emscripten (wasm) port building and running, and
+to make it usable as more than a demo: you can write code on the host, get it
+onto a disk image, and compile it on the emulated PC-98.
+
+It comes up as a PC-9801DX-class machine - 80286 at 12.288MHz, 640KB plus 1MB,
+two 2HD drives, EGC - and needs no BIOS ROM: NP2kai embeds an ITF ROM and
+`BIOS_IO_EMULATION` is on in every build. A `font.rom` built from the
+[Shinonome font](http://openlab.ring.gr.jp/efont/shinonome/) is bundled, so
+kanji render.
+
+| | |
+|---|---|
+| Disks included | FreeDOS(98) boot floppy, VZ Editor 1.6, LSI C-86 3.30c 試食版 |
+| Your own images | Added through the page, kept in IndexedDB, assigned to FDD1/FDD2/SCSI0/SCSI1 |
+| Hard disks | One button builds a `.hdn` SCSI image up to 100MB, partitioned and FAT16 formatted, ready to use with no BTNPART or FORMAT |
+| Getting files in and out | A "ディスクの中身" panel runs [`tools/pc98fat`](tools/pc98fat) as its own wasm module: browse an image, download a file out, upload a file in |
+| Sound | PC-9801-26K, -86, -118 and combinations, with either np2's opngen or cisc's fmgen. Substitute OPNA rhythm samples are bundled so the rhythm channel is not silent |
+| Speed | A 速度表示 readout reports emulated MHz against the configured clock, the paint rate and the worst frame gap |
+
+See [`web/disk/README.md`](web/disk/README.md) for where each bundled image
+comes from and under what terms, and [`RESUME.md`](RESUME.md) for how the wasm
+port got from "black screen" to here.
+
+Everything the wasm build links against - SDL2, libpng, zlib - is vendored
+under `deps/`, so `scripts/build-wasm.sh` needs nothing but the Emscripten SDK.
+`tests/wasm/` runs the emulator headless and reports the text screen, a PNG of
+the display, a WAV of the sound and the speed it reached. See the Emscripten
+section below.
 
 ![](https://img.shields.io/github/tag/AZO234/NP2kai.svg)
 
