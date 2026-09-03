@@ -322,64 +322,51 @@ xnp21kai
 Emscripten
 </summary><div>
 
-#### Install tools
-- MSYS2
-1. Install [Emscripten](https://emscripten.org/).
-2. Run MSYS2 64bit console
-3. Run the following command:
+Everything the wasm build links against - SDL2 2.32.10, libpng 1.6.58 and
+zlib 1.3.2 - is vendored under `deps/` and built from source, so a clone of
+this repository plus the Emscripten SDK is all that is needed. Nothing is
+downloaded from emscripten-ports at build time.
+
+#### Build (script)
+
 ```
-pacman -S git cmake make
-```
-- Linux
-1. Install [Emscripten](https://emscripten.org/).
-2. Run the following command:
-```
-sudo apt install git cmake build-essential
-```
-- macOS
-1. Install [Emscripten](https://emscripten.org/).
-2. Install XCode and brew.
-3. Run the following command:
-```
-sudo brew install cmake
+scripts/build-wasm.sh
 ```
 
-#### Build
-1. Change directory to NP2kai.
+The script uses `emcc` if it is already on PATH, otherwise the emsdk pointed
+at by `$EMSDK`, otherwise it fetches a pinned emsdk into `.emsdk/`. Useful
+environment variables: `EMSDK`, `EMSDK_VERSION` (default 6.0.0), `BUILD_DIR`
+(default `build-em`), `BUILD_TYPE` (default `Release`), `JOBS`.
+
+#### Build (by hand)
+
+1. Install [Emscripten](https://emscripten.org/), CMake, Ninja (or make) and
+   pkg-config. On MSYS2: `pacman -S git cmake ninja pkgconf`; on Debian or
+   Ubuntu: `sudo apt install git cmake ninja-build pkg-config build-essential`;
+   on macOS: `brew install cmake ninja pkg-config`.
+2. Configure and build:
 ```
-cd NP2kai
+emcmake cmake -S . -B build-em -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-em --target emnp21kai_sdl2
 ```
-2. Make work directory, and step in.
-```
-mkdir build
-cd build
-```
-3. Generate Makefile.
-```
-emcmake cmake ..
-```
-4. Make.
-```
-make -j
-```
+
+The Emscripten port is fixed to SDL2, so the target to build is
+`emnp21kai_sdl2` (IA-32) or `emnp2kai_sdl2` (i286, with `-D BUILD_I286=ON`).
+It produces `emnp21kai_sdl2.html`, `.js` and `.wasm`.
 
 - CMake options of Emscripten port (*=default)
 
 |name|value|work|output|
 |:---:|:---:|:---:|:---:|
-|USE_SDL2|ON*|Build with SDL2|emnp21kai.html|
-|USE_SDL2|OFF|Build with SDL|emnp21kai_sdl1.html|
-|USE_SDL_MIXER|ON*|Build with SDL2_mixer||
-|USE_SDL_TTF|ON*|Build with SDL2_ttf||
-|BUILD_I286|ON|Build i286|emnp2kai.html|
-|BUILD_I286|OFF*|Build IA-32|emnp21kai.html|
-
-  - Emscripten SDL1 port cannot be with SDL_mixer and SDL_ttf
+|BUILD_I286|ON|Build i286|emnp2kai_sdl2.html|
+|BUILD_I286|OFF*|Build IA-32|emnp21kai_sdl2.html|
+|USE_VENDORED_DEPS|ON*|Build SDL2/libpng/zlib from `deps/`||
+|USE_VENDORED_DEPS|OFF|Expect them from the environment instead||
 
 #### Run
 1. Run on emrun.
 ```
-emrun <Emscripten NP2kai filename>.html
+emrun build-em/emnp21kai_sdl2.html
 ```
 </div></details>
 

@@ -53,3 +53,7 @@ GEMINI.md
 AGENTS.md
 
 build_*/
+
+# Vendored third-party sources under deps/ are tracked verbatim, so none of
+# the source-tree patterns above should apply to them.
+!deps/**

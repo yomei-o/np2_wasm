@@ -6,13 +6,6 @@
 #include <compiler.h>
 #include <fontmng.h>
 
-#if USE_SDL >= 3 
-#include <SDL3_ttf/SDL_ttf.h>
-#elif USE_SDL == 2 
-#include <SDL_ttf.h>
-#elif USE_SDL == 1 
-#include <SDL_ttf/SDL_ttf.h>
-#endif
 
 #if defined(NP2_SIZE_QVGA)
 #include "ank10.res"

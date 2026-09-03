@@ -1,0 +1,2 @@
+# Vendored third-party sources are kept byte-for-byte as upstream ships them.
+deps/** -text

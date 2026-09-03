@@ -737,6 +737,18 @@ if(CMAKE_CROSSCOMPILING)
 
 endif()
 
+# Vendored third-party libraries (deps/). Emscripten has no system libraries
+# to find, and relying on emscripten-ports would mean downloading SDL2, libpng
+# and zlib at build time, so build them from the in-tree copies instead.
+if(EMSCRIPTEN)
+	option(USE_VENDORED_DEPS "Build SDL2/libpng/zlib from the in-tree copies under deps/" ON)
+else()
+	option(USE_VENDORED_DEPS "Build SDL2/libpng/zlib from the in-tree copies under deps/" OFF)
+endif()
+if(USE_VENDORED_DEPS)
+	add_subdirectory("deps")
+endif()
+
 # target base
 add_library(NP2kai_bbase INTERFACE)
 target_compile_definitions(NP2kai_bbase INTERFACE ${NP2kai_common_definitions} "NP2KAI_GIT_TAG=\"${NP2kai_GIT_TAG}\"" "NP2KAI_GIT_HASH=\"${NP2kai_GIT_HASH}\"")
@@ -758,14 +770,9 @@ target_link_libraries(NP2kai_bbase INTERFACE stdc++)
 elseif(NOT NP2kai_Windows)
 target_link_libraries(NP2kai_bbase INTERFACE)
 endif()
-if(EMSCRIPTEN)
-	# Emscripten ships libpng (and zlib) as ports, so there is no PNG::PNG
-	# imported target to link against; enable the port instead.
-	target_compile_options(NP2kai_bbase INTERFACE "SHELL:-s USE_LIBPNG=1")
-	target_link_options(NP2kai_bbase INTERFACE "SHELL:-s USE_LIBPNG=1")
-else()
-	target_link_libraries(NP2kai_bbase INTERFACE PNG::PNG)
-endif()
+# PNG::PNG comes from find_package(PNG) natively, and from deps/ when the
+# vendored libraries are used.
+target_link_libraries(NP2kai_bbase INTERFACE PNG::PNG)
 
 add_library(NP2kai_base INTERFACE)
 target_compile_definitions(NP2kai_base INTERFACE ${NP2kai_normal_definitions})
@@ -802,9 +809,10 @@ if(CMAKE_CROSSCOMPILING)
 			add_library(NP2kai_Emscripten_SDL2_base INTERFACE)
 			target_compile_definitions(NP2kai_Emscripten_SDL2_base INTERFACE ${NP2kai_SDL_definitions} "OSLINEBREAK_LF" "SUPPORT_SDL_AUDIO" ${lib_SDL_ttf_definitions} "SUPPORT_NP2_TICKCOUNT")
 			target_include_directories(NP2kai_Emscripten_SDL2_base INTERFACE ${NP2kai_Emscripten_include_dirs})
-			target_compile_options(NP2kai_Emscripten_SDL2_base INTERFACE "SHELL:-s USE_SDL=2" "SHELL:-s USE_SDL_TTF=2")
-			target_link_options(NP2kai_Emscripten_SDL2_base INTERFACE "SHELL:-s ASYNCIFY" "SHELL:-s ALLOW_MEMORY_GROWTH=1" "SHELL:-s INITIAL_MEMORY=${NP2kai_Emscripten_MinMemorySize}" "SHELL:-s MAXIMUM_MEMORY=${NP2kai_Emscripten_MaxMemorySize}" "SHELL:-s USE_SDL=2" "SHELL:-s USE_SDL_TTF=2" "SHELL:-s ASSERTIONS=1")
-			target_link_libraries(NP2kai_Emscripten_SDL2_base INTERFACE m)
+			# SDL2 comes from deps/; SDL_ttf is not requested because the
+			# Emscripten build never defines SUPPORT_SDL_TTF.
+			target_link_options(NP2kai_Emscripten_SDL2_base INTERFACE "SHELL:-s ASYNCIFY" "SHELL:-s ALLOW_MEMORY_GROWTH=1" "SHELL:-s INITIAL_MEMORY=${NP2kai_Emscripten_MinMemorySize}" "SHELL:-s MAXIMUM_MEMORY=${NP2kai_Emscripten_MaxMemorySize}" "SHELL:-s ASSERTIONS=1")
+			target_link_libraries(NP2kai_Emscripten_SDL2_base INTERFACE m SDL2::SDL2)
 			target_sources(NP2kai_Emscripten_SDL2_base INTERFACE ${NP2kai_SDL_sources}  "${CMAKE_CURRENT_SOURCE_DIR}/sdl/em/main.c")
 		elseif(USE_SDL EQUAL 3)
 			add_library(NP2kai_Emscripten_SDL3_base INTERFACE)
