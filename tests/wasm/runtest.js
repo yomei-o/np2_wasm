@@ -65,6 +65,9 @@ const KEYS = {
 	up: 0x3a, left: 0x3b, right: 0x3c, down: 0x3d,
 	rollup: 0x36, rolldown: 0x37, ins: 0x38, del: 0x39, home: 0x3e, help: 0x3f,
 	xfer: 0x35,
+	colon: 0x27, semicolon: 0x26, dot: 0x31, comma: 0x30, slash: 0x32,
+	minus: 0x0b, caret: 0x0c, yen: 0x0d, at: 0x1a, lbr: 0x1b, rbr: 0x28,
+	underscore: 0x33,
 	f1: 0x62, f2: 0x63, f3: 0x64, f4: 0x65, f5: 0x66,
 	f6: 0x67, f7: 0x68, f8: 0x69, f9: 0x6a, f10: 0x6b,
 	'1': 0x01, '2': 0x02, '3': 0x03, '4': 0x04, '5': 0x05,
@@ -75,13 +78,25 @@ const KEYS = {
 	y: 0x15, z: 0x29,
 };
 
+// An ASCII character to the PC-98 code that produces it, for @-typing.
+const ASCII = {
+	' ': 0x34, '-': 0x0b, '.': 0x31, ',': 0x30, '/': 0x32, ':': 0x27,
+	';': 0x26, '@': 0x1a, '[': 0x1b, ']': 0x28, '^': 0x0c, '_': 0x33,
+	'\\': 0x0d, '¥': 0x0d,
+};
+
 // KEYS="3000:ret,9000:ret" - at 3s and 9s after startup, tap Return.
 // A step may hold several keys: "5000:ret+space". Codes may also be given
 // as raw hex, e.g. "5000:0x1c".
 function parseKeyScript(spec) {
 	if (!spec) return [];
 	return spec.split(',').map((step) => {
-		const [at, keys] = step.split(':');
+		const [at, ...rest] = step.split(':');
+		const keys = rest.join(':');
+		// "@text" types the string one character at a time.
+		if (keys.startsWith('@')) {
+			return { at: Number(at), text: keys.slice(1) };
+		}
 		return {
 			at: Number(at),
 			codes: (keys || '').split('+').map((k) => {
@@ -232,7 +247,28 @@ createNP2({
 }).then((M) => {
   mod = M;
   const script = parseKeyScript(process.env.KEYS);
+  const tap = (code) => {
+    M.ccall('np2probe_key', null, ['number', 'number'], [code, 1]);
+    setTimeout(() => M.ccall('np2probe_key', null, ['number', 'number'], [code, 0]),
+               Number(process.env.KEY_HOLD || 80));
+  };
+  const codeFor = (ch) => {
+    const lower = ch.toLowerCase();
+    if (lower in KEYS) return KEYS[lower];
+    if (ch in ASCII) return ASCII[ch];
+    return null;
+  };
   for (const step of script) {
+    if (step.text !== undefined) {
+      const gap = Number(process.env.TYPE_GAP || 220);
+      [...step.text].forEach((ch, i) => {
+        const code = codeFor(ch);
+        if (code === null) { console.log('cannot type ' + JSON.stringify(ch)); return; }
+        setTimeout(() => tap(code), step.at + i * gap);
+      });
+      console.log('type @' + step.at + 'ms: ' + JSON.stringify(step.text));
+      continue;
+    }
     setTimeout(() => {
       for (const code of step.codes) M.ccall('np2probe_key', null, ['number', 'number'], [code, 1]);
       setTimeout(() => {
@@ -306,6 +342,19 @@ setTimeout(() => {
                   + ' peak=' + peak + ' mean=' + (sum / n).toFixed(1) + ' -> ' + wav);
     } catch (e) {
       console.log('wav: could not read /rec.wav: ' + e.message);
+    }
+  }
+  // The emulator writes to mounted images in place, so copy them back out
+  // if asked - that is the only way to keep an HDD it just formatted.
+  const saveDir = process.env.SAVE_DIR || '';
+  if (saveDir) {
+    fs.mkdirSync(saveDir, { recursive: true });
+    for (const name of mod.FS.readdir('/disk')) {
+      if (name === '.' || name === '..') continue;
+      const data = mod.FS.readFile('/disk/' + name);
+      const out = path.join(saveDir, name);
+      fs.writeFileSync(out, Buffer.from(data));
+      console.log('saved ' + out + ' (' + data.length + ' bytes)');
     }
   }
   const shot = process.env.SHOT || '';

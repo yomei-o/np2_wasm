@@ -88,6 +88,8 @@ canvas {
 #disk-table td { padding: 3px 8px 3px 0; }
 #disk-table td.name { font: 13px/1.5 ui-monospace, monospace; word-break: break-all; }
 #disk-table td.size { color: var(--dim); text-align: right; white-space: nowrap; }
+#disk-table td.actions { white-space: nowrap; }
+#disk-table td.actions button { margin-left: 4px; padding: 2px 7px; font-size: 12px; }
 #disk-table tr.slotted td.name { color: var(--accent); }
 #disk-table .builtin { color: var(--dim); font-size: 12px; }
 .notes {
@@ -131,6 +133,11 @@ canvas {
 		<input type="file" id="disk" multiple
 		       accept=".d88,.d98,.fdi,.hdm,.xdf,.2hd,.nfd,.fdd,.img,.ima,.hdi,.nhd,.thd">
 	</span>
+	<span>
+		<label for="hddsize">HDD</label>
+		<select id="hddsize"></select>
+		<button id="mkhdd" title="PC-98 領域確保 + FAT16 フォーマット済みの SCSI イメージを作る">HDDイメージ作成</button>
+	</span>
 	<button id="reboot">この構成で再起動</button>
 </header>
 
@@ -150,18 +157,35 @@ canvas {
 			<tr><td><kbd>F12</kbd></td><td>マウスキャプチャの切り替え</td></tr>
 		</table>
 
-		<h2>FreeDOS(98)</h2>
+		<h2>同梱ディスク</h2>
+		<table>
+			<tr><td><code>fd98_2hd.img</code></td><td>FreeDOS(98) 起動FD。エディタは <code>EDLIN</code>、HDD 領域確保は <code>BTNPART</code></td></tr>
+			<tr><td><code>vz_98.xdf</code></td><td>VZ Editor 1.6（BSD 3-Clause でオープンソース化されたもの）。<code>VZ.COM</code></td></tr>
+			<tr><td><code>lsic_98.xdf</code></td><td>LSI C-86 3.30c 試食版。<code>B:</code> → <code>TEST</code> で HELLO.C をコンパイル＆実行</td></tr>
+		</table>
 		<p>
-			FDD1 に FreeDOS(98) の 2HD 起動フロッピーを入れた状態で立ち上がります。
-			ブートメニューでは <kbd>2</kbd>（80286 用 XMS ドライバ）が PC-9801DX 相当の構成に合います。
-			<kbd>F5</kbd> を押すと CONFIG.SYS を読まずに素の状態で起動します。
+			FreeDOS(98) のブートメニューでは <kbd>2</kbd>（80286 用 XMS ドライバ）が
+			PC-9801DX 相当の構成に合います。<kbd>F5</kbd> で CONFIG.SYS を読まずに素起動。
+			出典とライセンスは <code>web/disk/README.md</code> にまとめてあります。
+		</p>
+
+		<h2>ディスクの扱い</h2>
+		<p>
+			自分のイメージは「ディスクを追加」で登録してください。ブラウザの IndexedDB に
+			保存されるのでリロードしても消えません。下の一覧で FDD1 / FDD2 / SCSI0 / SCSI1 を
+			選び、「この構成で再起動」でそのディスクから起動します。実行中の入れ替えは
+			<kbd>F11</kbd> のメニューからもできます（登録済みイメージは全部
+			<code>/disk</code> に置かれています）。
 		</p>
 		<p>
-			自分のディスクイメージは「ディスクを追加」で登録してください。ブラウザの
-			IndexedDB に保存されるのでリロードしても消えません。下のディスク一覧で
-			FDD1 / FDD2 を選び、「この構成で再起動」を押すとそのディスクから起動します。
-			実行中に入れ替えたい場合は <kbd>F11</kbd> のメニューからも選べます
-			（登録済みイメージは全部 <code>/disk</code> に置かれています）。
+			<strong>「HDDイメージ作成」</strong>は PC-98 の領域確保と FAT16 フォーマットまで
+			済んだ SCSI イメージ（最大 100MB、<code>.hdn</code> 形式）を作ります。
+			BTNPART や FORMAT を実行する必要はなく、再起動すればすぐ C: として使えます。
+		</p>
+		<p>
+			ゲスト側の書き込みは MEMFS 上にしか無いので、リロードで失われます。
+			残したいときは各行の <strong>保存</strong> でライブラリに書き戻すか、
+			<strong>DL</strong> でイメージをダウンロードしてください。
 			ファイルはブラウザの中だけに置かれ、どこにも送信されません。
 		</p>
 
@@ -176,7 +200,7 @@ canvas {
 	</div>
 </main>
 
-<script src="np2wasm.js"></script>
+<script type="module" src="np2wasm.js"></script>
 
 </body>
 </html>

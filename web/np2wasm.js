@@ -1,9 +1,12 @@
 // Page logic for the NP2kai wasm demo.
 //
-// The emulator only reads its config and mounts disks at startup, so booting
+// The emulator reads its config and mounts disks only at startup, so booting
 // from a disk means reloading the page with that disk already assigned to a
-// drive. MEMFS does not survive a reload, so added images are kept in
-// IndexedDB and the drive assignment in localStorage.
+// drive. MEMFS does not survive a reload, so images live in IndexedDB and the
+// drive assignment in localStorage. Writes the guest makes land in MEMFS only,
+// which is why every mounted image has a "保存" button that copies it back.
+
+import { createHdn } from './pc98disk.js';
 
 // ---------------------------------------------------------------- machines
 const MACHINES = {
@@ -75,11 +78,24 @@ const RHYTHM_WAVS = ['2608_bd.wav', '2608_sd.wav', '2608_top.wav',
                      '2608_hh.wav', '2608_tom.wav', '2608_rim.wav'];
 
 const FONT_ROM = 'bios/font.rom';
-const BOOT_DISK = {
-	name: 'fd98_2hd.img',
-	url: 'disk/fd98_2hd.img',
-	note: 'FreeDOS(98) 同梱',
-};
+const PC98_IPL = 'bios/pc98_ipl.bin';
+
+// Images shipped with the site. They behave like library entries that cannot
+// be deleted.
+const BUNDLED = [
+	{ name: 'fd98_2hd.img', url: 'disk/fd98_2hd.img', note: 'FreeDOS(98) 起動FD' },
+	{ name: 'vz_98.xdf', url: 'disk/vz_98.xdf', note: 'VZ Editor 1.6' },
+	{ name: 'lsic_98.xdf', url: 'disk/lsic_98.xdf', note: 'LSI C-86 3.30c 試食版' },
+];
+
+// np2_main() decides what a positional image is from its extension, and fills
+// FDD1/FDD2 and SCSIHDD0..3 in the order the arguments appear.
+const FD_EXT = ['d88', 'd98', 'fdi', 'hdm', 'xdf', 'dup', '2hd', 'nfd', 'fdd',
+                'hd4', 'hd5', 'hd9', 'h01', 'hdb', 'ddb', 'dd6', 'dd9', 'dcp',
+                'dcu', 'flp', 'bin', 'tfd', 'fim', 'img', 'ima'];
+const HD_EXT = ['hdn', 'hds', 'hdd', 'thd', 'nhd', 'hdi', 'vhd', 'sln'];
+
+const HDD_SIZES = [10, 20, 40, 60, 100];
 
 const SLOTS_KEY = 'np2wasm.slots';
 const DB_NAME = 'np2wasm';
@@ -91,6 +107,23 @@ function setStatus(text, isError) {
 	const el = $('status');
 	el.textContent = text;
 	el.classList.toggle('err', !!isError);
+}
+
+function extOf(name) {
+	const i = name.lastIndexOf('.');
+	return i < 0 ? '' : name.slice(i + 1).toLowerCase();
+}
+
+function kindOf(name) {
+	const ext = extOf(name);
+	if (HD_EXT.includes(ext)) return 'hd';
+	if (FD_EXT.includes(ext)) return 'fd';
+	return 'fd';
+}
+
+function fmtSize(n) {
+	return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB'
+	                        : Math.round(n / 1024) + ' KB';
 }
 
 // ------------------------------------------------------------ disk library
@@ -121,12 +154,16 @@ const diskLib = {
 };
 
 // -------------------------------------------------------------- slot state
+const SLOT_NAMES = { fdd1: 'FDD1', fdd2: 'FDD2', hdd1: 'SCSI0', hdd2: 'SCSI1' };
+const FD_SLOTS = ['fdd1', 'fdd2'];
+const HD_SLOTS = ['hdd1', 'hdd2'];
+
 function readSlots() {
+	const empty = { fdd1: null, fdd2: null, hdd1: null, hdd2: null };
 	try {
-		const v = JSON.parse(localStorage.getItem(SLOTS_KEY) || '{}');
-		return { fdd1: v.fdd1 || null, fdd2: v.fdd2 || null };
+		return Object.assign(empty, JSON.parse(localStorage.getItem(SLOTS_KEY) || '{}'));
 	} catch (err) {
-		return { fdd1: null, fdd2: null };
+		return empty;
 	}
 }
 
@@ -140,9 +177,8 @@ function writeSlots(slots) {
 
 function assign(slot, name) {
 	const slots = readSlots();
-	// A disk can only be in one drive at a time.
-	for (const key of ['fdd1', 'fdd2']) {
-		if (slots[key] === name) slots[key] = null;
+	for (const key of Object.keys(slots)) {
+		if (slots[key] === name) slots[key] = null;   // one drive at a time
 	}
 	slots[slot] = name;
 	writeSlots(slots);
@@ -179,10 +215,16 @@ function reload(changes) {
 }
 
 // ------------------------------------------------------------------ config
-function buildCfg(machine, haveFont) {
+function buildCfg(machine, haveFont, slots, mountedNames) {
 	const settings = Object.assign({}, machine.settings, {
 		SNDboard: currentSoundId(),
 		USEFMGEN: currentFmCore(),
+	});
+	// np2_main() also fills these from positional arguments, but writing them
+	// into the config keeps the assignment visible if the user opens F11.
+	HD_SLOTS.forEach((slot, i) => {
+		const name = slots[slot];
+		if (name && mountedNames.has(name)) settings['SCSIHDD' + i] = '/disk/' + name;
 	});
 	const nl = String.fromCharCode(10);
 	const lines = ['[' + machine.section + ']'];
@@ -222,36 +264,63 @@ for (const core of FM_CORES) fmSel.add(new Option(core.label, core.id));
 fmSel.value = currentFmCore();
 fmSel.addEventListener('change', () => reload({ fmgen: fmSel.value }));
 
+const hddSizeSel = $('hddsize');
+for (const mb of HDD_SIZES) hddSizeSel.add(new Option(mb + ' MB', String(mb)));
+hddSizeSel.value = '100';
+
 $('reboot').addEventListener('click', () => reload());
 
+// --------------------------------------------------------- MEMFS <-> library
+function memfsRead(name) {
+	try {
+		return window.Module.FS.readFile('/disk/' + name);
+	} catch (err) {
+		return null;
+	}
+}
+
+function download(name, bytes) {
+	const url = URL.createObjectURL(new Blob([bytes],
+		{ type: 'application/octet-stream' }));
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = name;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 // -------------------------------------------------------------- disk panel
-function fmtSize(n) {
-	return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(2) + ' MB'
-	                        : Math.round(n / 1024) + ' KB';
+function button(text, title, onClick) {
+	const b = document.createElement('button');
+	b.textContent = text;
+	if (title) b.title = title;
+	b.addEventListener('click', onClick);
+	return b;
 }
 
 async function renderDisks() {
 	const table = $('disk-table');
 	const slots = readSlots();
 	const lib = await diskLib.list().catch(() => []);
-	const rows = [{ name: BOOT_DISK.name, size: null, builtin: true }].concat(
-		lib.map((d) => ({
-			name: d.name,
-			size: d.bytes.byteLength,
-			builtin: false,
-		})));
+	const rows = BUNDLED.map((b) => ({ name: b.name, note: b.note, size: null,
+	                                   builtin: true }))
+		.concat(lib.map((d) => ({ name: d.name, note: '',
+		                          size: d.bytes.byteLength, builtin: false })));
 
 	table.textContent = '';
 	for (const row of rows) {
-		const slot = slots.fdd1 === row.name ? 'fdd1'
-		           : slots.fdd2 === row.name ? 'fdd2' : '';
+		const kind = kindOf(row.name);
+		const slot = Object.keys(slots).find((k) => slots[k] === row.name) || '';
 		const tr = document.createElement('tr');
 		if (slot) tr.className = 'slotted';
 
 		const sel = document.createElement('select');
 		sel.add(new Option('入れない', ''));
-		sel.add(new Option('FDD1', 'fdd1'));
-		sel.add(new Option('FDD2', 'fdd2'));
+		for (const s of (kind === 'hd' ? HD_SLOTS : FD_SLOTS)) {
+			sel.add(new Option(SLOT_NAMES[s], s));
+		}
 		sel.value = slot;
 		sel.addEventListener('change', () => {
 			if (sel.value) assign(sel.value, row.name);
@@ -264,10 +333,10 @@ async function renderDisks() {
 		const tdName = document.createElement('td');
 		tdName.className = 'name';
 		tdName.textContent = row.name;
-		if (row.builtin) {
+		if (row.note) {
 			const tag = document.createElement('span');
 			tag.className = 'builtin';
-			tag.textContent = '  ' + BOOT_DISK.note;
+			tag.textContent = '  ' + row.note;
 			tdName.appendChild(tag);
 		}
 
@@ -275,34 +344,54 @@ async function renderDisks() {
 		tdSize.className = 'size';
 		tdSize.textContent = row.size == null ? '' : fmtSize(row.size);
 
-		const tdEject = document.createElement('td');
+		const tdActions = document.createElement('td');
+		tdActions.className = 'actions';
 		if (slot) {
-			const btn = document.createElement('button');
-			btn.textContent = '取り出す';
-			btn.addEventListener('click', () => {
+			tdActions.appendChild(button('取り出す', 'ドライブから外す', () => {
 				eject(slot);
 				renderDisks();
-			});
-			tdEject.appendChild(btn);
+			}));
 		}
-
-		const tdDel = document.createElement('td');
+		tdActions.appendChild(button('保存', '実行中の書き込み内容をライブラリに書き戻す',
+			async () => {
+				const data = memfsRead(row.name);
+				if (!data) {
+					setStatus(row.name + ' はまだマウントされていません。', true);
+					return;
+				}
+				await diskLib.put(row.name, new Uint8Array(data));
+				await renderDisks();
+				setStatus(row.name + ' を保存しました (' + fmtSize(data.length) + ')。');
+			}));
+		tdActions.appendChild(button('DL', 'イメージをダウンロード', async () => {
+			const live = memfsRead(row.name);
+			if (live) {
+				download(row.name, live);
+				return;
+			}
+			const entry = lib.find((d) => d.name === row.name);
+			if (entry) {
+				download(row.name, new Uint8Array(entry.bytes));
+				return;
+			}
+			const url = (BUNDLED.find((b) => b.name === row.name) || {}).url;
+			if (url) location.href = url;
+		}));
 		if (!row.builtin) {
-			const btn = document.createElement('button');
-			btn.textContent = '削除';
-			btn.addEventListener('click', async () => {
+			tdActions.appendChild(button('削除', 'ライブラリから消す', async () => {
 				if (slot) eject(slot);
 				await diskLib.remove(row.name);
 				renderDisks();
-			});
-			tdDel.appendChild(btn);
+			}));
 		}
 
-		tr.append(tdSel, tdName, tdSize, tdEject, tdDel);
+		tr.append(tdSel, tdName, tdSize, tdActions);
 		table.appendChild(tr);
 	}
 
-	const inDrives = [slots.fdd1, slots.fdd2].filter(Boolean);
+	const inDrives = Object.entries(slots)
+		.filter(([, v]) => v)
+		.map(([k, v]) => SLOT_NAMES[k] + '=' + v);
 	$('disks-note').textContent = inDrives.length
 		? '(起動時: ' + inDrives.join(' / ') + ' — 変更したら「この構成で再起動」)'
 		: '(どのドライブにも入っていません)';
@@ -314,21 +403,46 @@ $('disk').addEventListener('change', async (event) => {
 	for (const file of files) {
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		await diskLib.put(file.name, bytes);
-		// Also drop it into the running machine so the F11 menu can pick it up
-		// without a reboot.
 		try {
 			window.Module.FS.writeFile('/disk/' + file.name, bytes);
 		} catch (err) {
 			console.warn('could not add to the running machine:', err);
 		}
+		const slots = readSlots();
+		const wanted = kindOf(file.name) === 'hd' ? HD_SLOTS : FD_SLOTS;
+		const free = wanted.find((s) => !slots[s]);
+		if (free) assign(free, file.name);
 	}
 	event.target.value = '';
-	const slots = readSlots();
-	if (!slots.fdd1) assign('fdd1', files[0].name);
-	else if (!slots.fdd2 && files[1]) assign('fdd2', files[1].name);
 	await renderDisks();
 	setStatus(files.map((f) => f.name).join(', ') + ' を登録しました。'
-	          + 'ドライブを選んで「この構成で再起動」で起動します。');
+	          + 'ドライブを確認して「この構成で再起動」で起動します。');
+});
+
+$('mkhdd').addEventListener('click', async () => {
+	const mb = Number(hddSizeSel.value);
+	const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+	let name = 'scsi' + mb + 'm_' + stamp + '.hdn';
+	const lib = await diskLib.list().catch(() => []);
+	for (let n = 2; lib.some((d) => d.name === name); n++) {
+		name = 'scsi' + mb + 'm_' + stamp + '_' + n + '.hdn';
+	}
+	setStatus(mb + 'MB の SCSI HDD イメージを作成しています…');
+	try {
+		const ipl = await fetchBytes(PC98_IPL);
+		if (!ipl) throw new Error(PC98_IPL + ' を読み込めませんでした');
+		const { image, info } = createHdn({ mb, label: 'NP2WASM', ipl });
+		await diskLib.put(name, image);
+		const slots = readSlots();
+		assign(slots.hdd1 ? 'hdd2' : 'hdd1', name);
+		await renderDisks();
+		setStatus(name + ' を作成しました — ' + info.mb + 'MB, C/H/S='
+		          + info.cylinders + '/' + info.heads + '/' + info.sectors
+		          + ', FAT16 ' + info.clusters + 'クラスタ。'
+		          + 'フォーマット済みなので「この構成で再起動」でそのまま使えます。');
+	} catch (err) {
+		setStatus('HDDイメージを作成できませんでした: ' + err.message, true);
+	}
 });
 
 // --------------------------------------------------------------------- boot
@@ -344,15 +458,22 @@ async function boot() {
 
 	// None of this is fatal: without the font only the built-in ANK font is
 	// there and kanji stay blank, and with no disk the drives just start empty.
-	const [fontRom, bootImage, ...rhythm] = await Promise.all([
+	const [fontRom, ...rest] = await Promise.all([
 		fetchBytes(FONT_ROM),
-		fetchBytes(BOOT_DISK.url),
 		...RHYTHM_WAVS.map((name) => fetchBytes('bios/' + name)),
+		...BUNDLED.map((b) => fetchBytes(b.url)),
 	]);
-	if (bootImage) byName.set(BOOT_DISK.name, bootImage);
+	const rhythm = rest.slice(0, RHYTHM_WAVS.length);
+	const bundled = rest.slice(RHYTHM_WAVS.length);
+	BUNDLED.forEach((b, i) => {
+		if (bundled[i] && !byName.has(b.name)) byName.set(b.name, bundled[i]);
+	});
 
-	// np2_main() mounts positional image arguments into FDD1 then FDD2.
-	const mounted = [slots.fdd1, slots.fdd2].filter((n) => n && byName.has(n));
+	// FDD1, FDD2, then the SCSI drives - np2_main() assigns each positional
+	// image by extension, in order.
+	const mounted = [...FD_SLOTS, ...HD_SLOTS]
+		.map((s) => slots[s])
+		.filter((n) => n && byName.has(n));
 	const args = mounted.map((n) => '/disk/' + n);
 
 	window.Module = {
@@ -368,13 +489,14 @@ async function boot() {
 				FS.writeFile('/' + name, rhythm[i]);
 				FS.writeFile('/' + name.toUpperCase(), rhythm[i]);
 			});
-			FS.writeFile('/' + machine.cfg, buildCfg(machine, !!fontRom));
 			FS.mkdir('/disk');
 			// Every known image goes into /disk, in or out of a drive, so the
 			// F11 menu can swap disks while running.
 			for (const [name, bytes] of byName) {
 				FS.writeFile('/disk/' + name, bytes);
 			}
+			FS.writeFile('/' + machine.cfg,
+			             buildCfg(machine, !!fontRom, slots, byName));
 		}],
 		print: (text) => console.log(text),
 		printErr: (text) => console.warn(text),
