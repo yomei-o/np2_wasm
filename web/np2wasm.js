@@ -6,7 +6,7 @@
 // drive assignment in localStorage. Writes the guest makes land in MEMFS only,
 // which is why every mounted image has a "保存" button that copies it back.
 
-import { createHdn } from './pc98disk.js';
+import { makeHdn } from './pc98fatapi.js';
 import { initDiskBrowser, diskBrowserRefresh } from './diskbrowser.js';
 
 // ---------------------------------------------------------------- machines
@@ -433,16 +433,15 @@ $('mkhdd').addEventListener('click', async () => {
 	try {
 		const ipl = await fetchBytes(PC98_IPL);
 		if (!ipl) throw new Error(PC98_IPL + ' を読み込めませんでした');
-		const { image, info } = createHdn({ mb, label: 'NP2WASM', ipl });
+		const image = await makeHdn(mb, 'NP2WASM', ipl);
 		await diskLib.put(name, image);
 		const slots = readSlots();
 		assign(slots.hdd1 ? 'hdd2' : 'hdd1', name);
 		await renderDisks();
 		diskBrowserRefresh();
-		setStatus(name + ' を作成しました — ' + info.mb + 'MB, C/H/S='
-		          + info.cylinders + '/' + info.heads + '/' + info.sectors
-		          + ', FAT16 ' + info.clusters + 'クラスタ。'
-		          + 'フォーマット済みなので「この構成で再起動」でそのまま使えます。');
+		setStatus(name + ' を作成しました — ' + fmtSize(image.length)
+		          + ' / 領域確保と FAT16 フォーマット済みなので、'
+		          + '「この構成で再起動」でそのまま C: として使えます。');
 	} catch (err) {
 		setStatus('HDDイメージを作成できませんでした: ' + err.message, true);
 	}

@@ -890,3 +890,235 @@ void pc98fat_close(void)
 	listlen = 0;
 	listbuf[0] = '\0';
 }
+
+/* ---------------------------------------------------------- making images */
+
+/*
+ * These write what FDISK and FORMAT would have written, and nothing else. A
+ * FAT16 cluster is free when its FAT entry is zero, so a zero-filled buffer
+ * already means "everything free"; only the IPL, the partition entry, the BPB,
+ * the two FAT seeds and the volume label have to be filled in. For a 100MB
+ * disk that is 291 bytes out of 104,857,600.
+ *
+ * The layout is not guessed. A blank image was partitioned by FreeDOS(98)'s
+ * own BTNPART.EXE inside the emulator and read back out; see
+ * tools/fatimg.py and RESUME.md for what that corrected.
+ */
+
+#define HDN_SECTOR 512
+#define HDN_SPT 25              /* .hdn / PC-9801-55 geometry */
+#define HDN_HEADS 8
+#define FD_2HD_SECTOR 1024
+#define FD_2HD_SECTORS 1232     /* 77 cylinders x 2 heads x 8 sectors */
+
+/* Uppercase, space padded, and it stops at the terminator rather than reading
+ * past it. */
+static void put_ascii(uint8_t *dst, const char *text, uint32_t len)
+{
+	uint32_t i;
+	int ended = (text == NULL);
+
+	for (i = 0; i < len; i++) {
+		unsigned char c;
+
+		if (!ended && text[i] == '\0') {
+			ended = 1;
+		}
+		if (ended) {
+			dst[i] = ' ';
+			continue;
+		}
+		c = (unsigned char)text[i];
+		dst[i] = (c >= 'a' && c <= 'z') ? (uint8_t)(c - 32) : (uint8_t)c;
+	}
+}
+
+static void build_bpb(uint8_t *sec, uint32_t bps, uint32_t spc,
+                      uint32_t reserved, uint32_t nfats, uint32_t nroot,
+                      uint32_t total, uint8_t media, uint32_t spf,
+                      uint32_t spt, uint32_t heads, uint32_t hidden,
+                      const char *label, int fat16)
+{
+	memset(sec, 0, bps);
+	sec[0] = 0xeb;
+	sec[1] = 0x00;
+	sec[2] = 0x90;                            /* a jump, so DOS accepts it */
+	put_ascii(sec + 3, "NP2WASM", 8);
+	wr16(sec + 11, (uint16_t)bps);
+	sec[13] = (uint8_t)spc;
+	wr16(sec + 14, (uint16_t)reserved);
+	sec[16] = (uint8_t)nfats;
+	wr16(sec + 17, (uint16_t)nroot);
+	wr16(sec + 19, total > 0xffff ? 0 : (uint16_t)total);
+	sec[21] = media;
+	wr16(sec + 22, (uint16_t)spf);
+	wr16(sec + 24, (uint16_t)spt);
+	wr16(sec + 26, (uint16_t)heads);
+	wr32(sec + 28, hidden);
+	wr32(sec + 32, total > 0xffff ? total : 0);
+	sec[36] = fat16 ? 0x80 : 0x00;            /* BIOS drive: 0x80 = first HDD */
+	sec[38] = 0x29;                           /* extended boot signature */
+	wr32(sec + 39, 0x12345678);               /* volume serial */
+	put_ascii(sec + 43, label, 11);
+	put_ascii(sec + 54, fat16 ? "FAT16" : "FAT12", 8);
+	sec[bps - 2] = 0x55;
+	sec[bps - 1] = 0xaa;
+}
+
+/*
+ * Sector 1 of a PC-98 hard disk holds up to 16 of these.
+ *   +0  mid 0xa1 / +1 sid 0xa1   (bootable DOS partition)
+ *   +4  IPL   sector, head, cylinder (LE16)
+ *   +8  start sector, head, cylinder (LE16)
+ *   +12 end   sector, head, cylinder (LE16), inclusive
+ *   +16 name, 16 bytes, space padded
+ */
+static void build_partition(uint8_t *e, uint32_t start_cyl, uint32_t end_cyl,
+                            uint32_t heads, uint32_t spt, const char *label)
+{
+	memset(e, 0, 32);
+	e[0] = 0xa1;
+	e[1] = 0xa1;
+	wr16(e + 6, (uint16_t)start_cyl);         /* IPL at cylinder start */
+	wr16(e + 10, (uint16_t)start_cyl);
+	e[12] = (uint8_t)(spt - 1);
+	e[13] = (uint8_t)(heads - 1);
+	wr16(e + 14, (uint16_t)end_cyl);
+	put_ascii(e + 16, label, 16);
+}
+
+static void seed_fats(uint8_t *part, uint32_t bps, uint32_t reserved,
+                      uint32_t spf, uint8_t seed, int fat16)
+{
+	uint32_t n;
+
+	/* FAT[0] takes the media byte in its low position and FAT[1] is all ones.
+	 * BTNPART writes 0xfe here even where the BPB media byte is 0xf8; DOS
+	 * reads the BPB, so keep the pair it produces. */
+	for (n = 0; n < 2; n++) {
+		uint8_t *p = part + (reserved + n * spf) * bps;
+
+		p[0] = seed;
+		p[1] = 0xff;
+		p[2] = 0xff;
+		if (fat16) {
+			p[3] = 0xff;
+		}
+	}
+}
+
+/*
+ * A .hdn SCSI image with one FAT16 partition covering the disk. `ipl` must be
+ * the 512-byte PC-98 IPL: BTNPART reports writing it but the bytes never
+ * reach the image under np2's SCSI emulation, and with sector 0 blank the
+ * FreeDOS(98) kernel offers the partition no drive letter at all.
+ *
+ * `image` must already be `size` bytes of zeroes, `size` a whole number of
+ * cylinders (mb * 1024 * 1024 rounded up to 512 * 25 * 8). Pass 0 for spc or
+ * nroot to take the values BTNPART uses.
+ */
+EXPORT
+int pc98fat_mkhdn(uint8_t *image, int size, const char *label,
+                  const uint8_t *ipl, int iplsize, int spc_in, int nroot_in)
+{
+	uint32_t track = HDN_SECTOR * HDN_SPT * HDN_HEADS;
+	uint32_t total, cylinders, start_cyl, end_cyl, hidden, part_sectors;
+	uint32_t spc = spc_in > 0 ? (uint32_t)spc_in : 4;
+	uint32_t nroot = nroot_in > 0 ? (uint32_t)nroot_in : 3072;
+	uint32_t reserved = 2, root_sectors, clusters, spf;
+	uint8_t *part;
+
+	errbuf[0] = '\0';
+	if (image == NULL || size <= 0) {
+		set_err("no buffer");
+		return PF_ERR_NOIMAGE;
+	}
+	total = (uint32_t)size;
+	if (total % track) {
+		set_err("size is not a whole number of cylinders");
+		return PF_ERR_TOOSMALL;
+	}
+	cylinders = total / track;
+	if (cylinders < 2) {
+		set_err("too small");
+		return PF_ERR_TOOSMALL;
+	}
+
+	/* Cylinder 0 holds the IPL and the partition table. */
+	start_cyl = 1;
+	end_cyl = cylinders - 1;
+	hidden = start_cyl * HDN_SPT * HDN_HEADS;
+	part_sectors = (end_cyl - start_cyl + 1) * HDN_SPT * HDN_HEADS;
+
+	root_sectors = (nroot * 32 + HDN_SECTOR - 1) / HDN_SECTOR;
+	clusters = (part_sectors - reserved - root_sectors) / spc;
+	spf = ((clusters + 2) * 2 + HDN_SECTOR - 1) / HDN_SECTOR;
+	/* spf feeds back into the cluster count; one pass is enough at these
+	 * sizes, and the result is checked below. */
+	clusters = (part_sectors - reserved - 2 * spf - root_sectors) / spc;
+	if (clusters <= 4085 || clusters >= 65525) {
+		set_err("cluster count is outside FAT16 - adjust the cluster size");
+		return PF_ERR_TOOSMALL;
+	}
+
+	if (ipl != NULL && iplsize > 0) {
+		uint32_t n = (uint32_t)iplsize < HDN_SECTOR
+		           ? (uint32_t)iplsize : HDN_SECTOR;
+		memcpy(image, ipl, n);
+	}
+	build_partition(image + HDN_SECTOR, start_cyl, end_cyl,
+	                HDN_HEADS, HDN_SPT, label);
+
+	part = image + hidden * HDN_SECTOR;
+	build_bpb(part, HDN_SECTOR, spc, reserved, 2, nroot, part_sectors,
+	          0xf8, spf, HDN_SPT, HDN_HEADS, hidden, label, 1);
+	seed_fats(part, HDN_SECTOR, reserved, spf, 0xfe, 1);
+
+	{
+		uint8_t *root = part + (reserved + 2 * spf) * HDN_SECTOR;
+
+		put_ascii(root, label, 11);
+		root[11] = ATTR_VOLUME;
+	}
+	return PF_OK;
+}
+
+/* How big a .hdn of `mb` megabytes has to be: whole cylinders. */
+EXPORT
+int pc98fat_hdn_size(int mb)
+{
+	uint32_t track = HDN_SECTOR * HDN_SPT * HDN_HEADS;
+	uint32_t want;
+
+	if (mb <= 0) {
+		return 0;
+	}
+	want = (uint32_t)mb * 1024u * 1024u;
+	if (want % track) {
+		want = (want / track + 1) * track;
+	}
+	return (int)want;
+}
+
+EXPORT int pc98fat_fd2hd_size(void) { return FD_2HD_SECTOR * FD_2HD_SECTORS; }
+
+/* A blank PC-98 2HD (1.2MB) FAT12 floppy, the shape the FreeDOS(98) one has. */
+EXPORT
+int pc98fat_mkfd2hd(uint8_t *image, int size, const char *label)
+{
+	errbuf[0] = '\0';
+	if (image == NULL || size != FD_2HD_SECTOR * FD_2HD_SECTORS) {
+		set_err("a 2HD image is 1261568 bytes");
+		return PF_ERR_TOOSMALL;
+	}
+	build_bpb(image, FD_2HD_SECTOR, 1, 1, 2, 192, FD_2HD_SECTORS,
+	          0xfe, 2, 8, 2, 0, label, 0);
+	seed_fats(image, FD_2HD_SECTOR, 1, 2, 0xfe, 0);
+	{
+		uint8_t *root = image + (1 + 2 * 2) * FD_2HD_SECTOR;
+
+		put_ascii(root, label, 11);
+		root[11] = ATTR_VOLUME;
+	}
+	return PF_OK;
+}

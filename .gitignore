@@ -67,3 +67,4 @@ tools/pc98fat/wasm_out.*
 tools/pc98fat/out.bin
 pf_*.img
 pf_*.xdf
+tools/pc98fat/mk_*
