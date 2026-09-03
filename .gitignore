@@ -57,3 +57,13 @@ build_*/
 # Vendored third-party sources under deps/ are tracked verbatim, so none of
 # the source-tree patterns above should apply to them.
 !deps/**
+
+# pc98fat self test output
+tools/pc98fat/*.exe
+tools/pc98fat/pf_*
+tools/pc98fat/xc_*
+tools/pc98fat/*.hdn
+tools/pc98fat/wasm_out.*
+tools/pc98fat/out.bin
+pf_*.img
+pf_*.xdf

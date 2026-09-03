@@ -7,6 +7,7 @@
 // which is why every mounted image has a "保存" button that copies it back.
 
 import { createHdn } from './pc98disk.js';
+import { initDiskBrowser, diskBrowserRefresh } from './diskbrowser.js';
 
 // ---------------------------------------------------------------- machines
 const MACHINES = {
@@ -415,6 +416,7 @@ $('disk').addEventListener('change', async (event) => {
 	}
 	event.target.value = '';
 	await renderDisks();
+	diskBrowserRefresh();
 	setStatus(files.map((f) => f.name).join(', ') + ' を登録しました。'
 	          + 'ドライブを確認して「この構成で再起動」で起動します。');
 });
@@ -436,6 +438,7 @@ $('mkhdd').addEventListener('click', async () => {
 		const slots = readSlots();
 		assign(slots.hdd1 ? 'hdd2' : 'hdd1', name);
 		await renderDisks();
+		diskBrowserRefresh();
 		setStatus(name + ' を作成しました — ' + info.mb + 'MB, C/H/S='
 		          + info.cylinders + '/' + info.heads + '/' + info.sectors
 		          + ', FAT16 ' + info.clusters + 'クラスタ。'
@@ -586,6 +589,17 @@ async function boot() {
 	};
 
 	await renderDisks();
+
+	// The disk contents panel runs its own wasm module and only touches the
+	// library, so it is safe to bring up alongside the emulator.
+	initDiskBrowser({
+		list: () => diskLib.list().catch(() => []),
+		put: (name, image) => diskLib.put(name, image),
+		memfsRead,
+		bundledNames: () => BUNDLED.map((b) => b.name),
+		bundledUrl: (name) => (BUNDLED.find((b) => b.name === name) || {}).url,
+		onSaved: () => renderDisks(),
+	}).catch((err) => console.warn('disk browser unavailable:', err));
 
 	setStatus('エミュレータを読み込んでいます (' + machine.js + ')…');
 	const script = document.createElement('script');

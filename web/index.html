@@ -101,7 +101,17 @@ canvas {
 #disk-table td.actions { white-space: nowrap; }
 #disk-table td.actions button { margin-left: 4px; padding: 2px 7px; font-size: 12px; }
 #disk-table tr.slotted td.name { color: var(--accent); }
-#disk-table .builtin { color: var(--dim); font-size: 12px; }
+#disk-table .builtin, #fat-table .builtin { color: var(--dim); font-size: 12px; }
+#fat-table { width: 100%; border-collapse: collapse; }
+#fat-table td { padding: 3px 8px 3px 0; }
+#fat-table td.name { font: 13px/1.5 ui-monospace, monospace; word-break: break-all; }
+#fat-table td.name a { color: var(--accent); text-decoration: none; }
+#fat-table td.size { color: var(--dim); text-align: right; white-space: nowrap; }
+#fat-table td.actions { white-space: nowrap; }
+#fat-table td.actions button { margin-left: 4px; padding: 2px 7px; font-size: 12px; }
+#fat-note.err { color: #ff8a8a; }
+.fat-bar { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.fat-bar .name { font: 13px/1.5 ui-monospace, monospace; color: var(--accent); }
 .notes {
 	max-width: 900px;
 	color: var(--dim);
@@ -162,6 +172,27 @@ canvas {
 		<table id="disk-table"></table>
 	</div>
 
+	<div id="disks">
+		<div class="disks-head">
+			ディスクの中身
+			<span>— イメージを開いてファイルを出し入れできます（エミュレータとは別の wasm）</span>
+		</div>
+		<div class="fat-bar">
+			<select id="fat-image"></select>
+			<button id="fat-open">開く</button>
+			<button id="fat-up" disabled>上へ</button>
+			<span id="fat-path" class="name"></span>
+		</div>
+		<table id="fat-table"></table>
+		<div class="fat-bar">
+			<button id="fat-add" disabled>ファイルを入れる</button>
+			<button id="fat-mkdir" disabled>新規フォルダ</button>
+			<button id="fat-save" disabled>保存</button>
+			<input type="file" id="fat-file" multiple hidden>
+		</div>
+		<div id="fat-note" class="disks-head"></div>
+	</div>
+
 	<div class="notes">
 		<h2>キー操作</h2>
 		<table>
@@ -199,6 +230,21 @@ canvas {
 			残したいときは各行の <strong>保存</strong> でライブラリに書き戻すか、
 			<strong>DL</strong> でイメージをダウンロードしてください。
 			ファイルはブラウザの中だけに置かれ、どこにも送信されません。
+		</p>
+
+		<h2>ホストでコードを書いてエミュレータでコンパイルする</h2>
+		<ol>
+			<li>「ディスクの中身」で <code>lsic_98.xdf</code> を開く</li>
+			<li>「ファイルを入れる」で手元の <code>.c</code> を入れて「保存」</li>
+			<li>ディスク一覧で <code>fd98_2hd.img</code> を FDD1、<code>lsic_98.xdf</code> を FDD2 にして「この構成で再起動」</li>
+			<li><code>B:</code> のあと <code>\LSIC86\BIN\LCC 自分のファイル.C</code> でコンパイル</li>
+			<li>できた <code>.EXE</code> は「ディスクの中身」の「取り出す」でホストに戻せます</li>
+		</ol>
+		<p>
+			「ディスクの中身」はエミュレータとは別の wasm（<code>pc98fat.wasm</code>、26KB）で動いていて、
+			ライブラリ側のイメージだけを触ります。実行中のディスクに書いた内容を見たいときは、
+			先にディスク一覧側の「保存」を押してください。編集結果は「この構成で再起動」で反映されます。
+			エディタが要るときは <code>vz_98.xdf</code> の VZ Editor を使ってください。
 		</p>
 
 		<h2>BIOS ROM について</h2>
