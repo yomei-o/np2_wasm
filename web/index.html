@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NP2kai wasm - PC-9801 in the browser</title>
+<style>
+:root {
+	--bg: #14161a;
+	--panel: #1c1f26;
+	--line: #2b303b;
+	--fg: #e6e8ec;
+	--dim: #9aa3b2;
+	--accent: #7cc4ff;
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px 20px;
+	align-items: center;
+	padding: 12px 20px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+}
+h1 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: .02em;
+}
+h1 span { color: var(--dim); font-weight: 400; }
+label { color: var(--dim); }
+select, button {
+	font: inherit;
+	color: var(--fg);
+	background: #262b34;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 5px 10px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+main {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+	padding: 20px;
+}
+#screen-wrap {
+	background: #000;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	line-height: 0;
+}
+canvas {
+	display: block;
+	width: 1280px;
+	max-width: calc(100vw - 44px);
+	aspect-ratio: 8 / 5;
+	image-rendering: pixelated;
+	outline: none;
+}
+#status {
+	min-height: 1.6em;
+	color: var(--dim);
+	font-variant-numeric: tabular-nums;
+}
+#status.err { color: #ff8a8a; }
+.notes {
+	max-width: 900px;
+	color: var(--dim);
+	font-size: 13px;
+}
+.notes h2 { font-size: 13px; color: var(--fg); margin: 18px 0 6px; }
+.notes table { border-collapse: collapse; }
+.notes td { padding: 1px 14px 1px 0; vertical-align: top; }
+.notes kbd {
+	background: #262b34;
+	border: 1px solid var(--line);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	padding: 0 5px;
+	font: 12px/1.5 ui-monospace, monospace;
+	color: var(--fg);
+}
+.notes a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+	<h1>NP2kai <span>wasm</span></h1>
+	<span>
+		<label for="machine">機種</label>
+		<select id="machine"></select>
+	</span>
+	<span>
+		<label for="disk">ディスクを追加</label>
+		<input type="file" id="disk" multiple
+		       accept=".d88,.d98,.fdi,.hdm,.xdf,.2hd,.nfd,.fdd,.img,.ima,.hdi,.nhd,.thd">
+	</span>
+	<button id="reset" hidden>リセット</button>
+</header>
+
+<main>
+	<div id="screen-wrap"><canvas id="canvas" tabindex="0" width="640" height="400"></canvas></div>
+	<div id="status">起動しています…</div>
+
+	<div class="notes">
+		<h2>キー操作</h2>
+		<table>
+			<tr><td><kbd>F11</kbd> または マウス中ボタン</td><td>NP2 メニュー（ディスクの入れ替え、設定）</td></tr>
+			<tr><td><kbd>F12</kbd></td><td>マウスキャプチャの切り替え</td></tr>
+		</table>
+
+		<h2>FreeDOS(98)</h2>
+		<p>
+			FDD1 に FreeDOS(98) の 2HD 起動フロッピーを入れた状態で立ち上がります。
+			ブートメニューでは <kbd>2</kbd>（80286 用 XMS ドライバ）が PC-9801DX 相当の構成に合います。
+			<kbd>F5</kbd> を押すと CONFIG.SYS を読まずに素の状態で起動します。
+		</p>
+		<p>
+			自分のディスクイメージを使うには、上の「ディスクを追加」で選んでから
+			<kbd>F11</kbd> のメニューで FDD/HDD に割り当ててください。
+			ファイルはブラウザの中だけに置かれ、どこにも送信されません。
+		</p>
+
+		<h2>BIOS ROM について</h2>
+		<p>
+			NP2kai は ITF ROM と ANK フォントを内蔵しているので、実機の ROM なしで動きます。
+			実機の <code>font.rom</code> を入れると漢字が表示され、<code>sound.rom</code> と
+			<code>2608_*.wav</code> を入れると FM 音源とリズム音源の再現が上がりますが、
+			いずれも著作権物のためここには含まれていません。
+		</p>
+	</div>
+</main>
+
+<script>
+const MACHINES = {
+	dx2: {
+		label: 'PC-9801DX2 相当 (80286 12MHz)',
+		js: 'emnp2kai_sdl2.js',
+		cfg: 'np2kai.cfg',
+		section: 'NekoProjectIIkai',
+		// PC-9801DX: 80286-12MHz, 640KB + 増設 1MB, 音源は PC-9801-26K 増設想定.
+		// clk_base 2.4576MHz x clk_mult 5 = 12.288MHz.
+		settings: {
+			pc_model: 'VX',
+			clk_base: '2457600',
+			clk_mult: '5',
+			ExMemory: '1',
+			SNDboard: '02',
+		},
+	},
+	ia32: {
+		label: 'PC-9821 相当 (IA-32)',
+		js: 'emnp21kai_sdl2.js',
+		cfg: 'np21kai.cfg',
+		section: 'NekoProject21kai',
+		settings: {
+			pc_model: 'VX',
+			clk_base: '2457600',
+			clk_mult: '20',
+			ExMemory: '13',
+			SNDboard: '04',
+		},
+	},
+};
+
+const BOOT_DISK = 'disk/fd98_2hd.img';
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+
+function setStatus(text, isError) {
+	statusEl.textContent = text;
+	statusEl.classList.toggle('err', !!isError);
+}
+
+function buildCfg(machine) {
+	const lines = ['[' + machine.section + ']'];
+	for (const [key, value] of Object.entries(machine.settings)) {
+		lines.push(key + '=' + value);
+	}
+	return lines.join('\n') + '\n';
+}
+
+function currentMachineKey() {
+	const key = new URLSearchParams(location.search).get('machine');
+	return MACHINES[key] ? key : 'dx2';
+}
+
+// ---- machine selector -----------------------------------------------------
+const machineSel = $('machine');
+for (const [key, machine] of Object.entries(MACHINES)) {
+	machineSel.add(new Option(machine.label, key));
+}
+machineSel.value = currentMachineKey();
+machineSel.addEventListener('change', () => {
+	location.search = '?machine=' + machineSel.value;
+});
+
+$('reset').addEventListener('click', () => location.reload());
+
+// ---- boot -----------------------------------------------------------------
+async function boot() {
+	const key = currentMachineKey();
+	const machine = MACHINES[key];
+	const canvas = $('canvas');
+
+	setStatus('FreeDOS(98) のディスクを読み込んでいます…');
+	let bootImage = null;
+	try {
+		const res = await fetch(BOOT_DISK);
+		if (!res.ok) throw new Error('HTTP ' + res.status);
+		bootImage = new Uint8Array(await res.arrayBuffer());
+	} catch (err) {
+		// Not fatal - the emulator still boots, it just has no disk in FDD1.
+		console.warn('boot disk unavailable:', err);
+	}
+
+	const args = [];
+	window.Module = {
+		canvas,
+		arguments: args,
+		preRun: [function () {
+			const FS = window.Module.FS;
+			FS.writeFile('/' + machine.cfg, buildCfg(machine));
+			FS.mkdir('/disk');
+			if (bootImage) {
+				FS.writeFile('/disk/fd98_2hd.img', bootImage);
+				args.push('/disk/fd98_2hd.img');
+			}
+		}],
+		print: (text) => console.log(text),
+		printErr: (text) => console.warn(text),
+		setStatus: (text) => { if (text) setStatus(text); },
+		onRuntimeInitialized: () => {
+			setStatus(machine.label + ' - 画面をクリックしてからキー入力してください');
+			$('reset').hidden = false;
+			canvas.focus();
+		},
+	};
+
+	setStatus('エミュレータを読み込んでいます (' + machine.js + ')…');
+	const script = document.createElement('script');
+	script.src = machine.js;
+	script.onerror = () => setStatus(machine.js + ' を読み込めませんでした。', true);
+	document.body.appendChild(script);
+}
+
+// ---- adding disk images at runtime ---------------------------------------
+$('disk').addEventListener('change', async (event) => {
+	const files = [...event.target.files];
+	if (!files.length) return;
+	const FS = window.Module && window.Module.FS;
+	if (!FS) {
+		setStatus('まだ起動中です。少し待ってからもう一度選んでください。', true);
+		return;
+	}
+	for (const file of files) {
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		FS.writeFile('/disk/' + file.name, bytes);
+	}
+	setStatus(files.map((f) => f.name).join(', ') + ' を /disk に置きました。F11 のメニューから選んでください。');
+	$('canvas').focus();
+});
+
+boot();
+</script>
+
+</body>
+</html>
