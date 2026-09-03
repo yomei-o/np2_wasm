@@ -27,6 +27,33 @@ not exercise their rights - and explicitly permit modification, conversion to
 other formats, embedding and redistribution, with no warranty. Converting it
 to a PC-98 font ROM image and shipping it here is covered by those terms.
 
+## 2608_*.wav (OPNA rhythm)
+
+Substitute waveforms for the YM2608 rhythm generator, so the rhythm channel is
+not silent with no ROM registered. Taken unmodified from
+
+    YM2608風リズム音源音色データ Ver.2.0
+    Memoru (Takanori YOSHIMURA) <memoru@kisoba.info>
+    https://sound.jp/jaime/fmp_top.html
+    https://sound.jp/jaime/files/2608modoki2.zip
+
+These are **not** dumped from a real YM2608 - the author built them by
+collecting sounds from instruments on hand and editing them to resemble the
+YM2608 rhythm set, and says outright that the waveforms differ fundamentally
+from the real thing. The bundled 2608modoki2.txt is the original distribution
+note; its terms (quoted) are:
+
+    配布・転載・ソフトへの組み込み等、有償無償にかかわらずご自由にどうぞ。
+    ソフトに組み込む場合や、サンプリング素材集の一部として配布する場合は
+    何のタイトルに使ったかお知らせいただけるとうれしいです。
+
+Both spellings of each file are written into MEMFS by the demo page, because
+np2's own sound/rhythmc.c opens the lowercase `2608_bd.wav` while fmgen's
+`OPNA::LoadRhythmSample()` opens the uppercase `2608_BD.WAV`, and MEMFS is
+case-sensitive. Which one is used depends on the `USEFMGEN` setting, whose
+default is on. A PC-9801-26K (YM2203) has no rhythm generator at all, so none
+of this applies until the sound board is set to a YM2608-based one.
+
 ## Not included
 
 `bios.rom`, `itf.rom`, `sound.rom` and the `2608_*.wav` rhythm samples are

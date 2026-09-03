@@ -17,6 +17,10 @@
 #include <emscripten.h>
 #endif
 
+/* np2 can record the mixed sound output to a WAV file; the windows,
+ * wx and x ports enable it and the SDL ports never did. */
+#define	SUPPORT_WAVEREC
+
 #define	msgbox(title, msg)
 
 #define	GETTICK()			SDL_GetTicks()

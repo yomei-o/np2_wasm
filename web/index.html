@@ -74,6 +74,22 @@ canvas {
 	font-variant-numeric: tabular-nums;
 }
 #status.err { color: #ff8a8a; }
+#disks {
+	width: 100%;
+	max-width: 900px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	padding: 10px 14px;
+}
+.disks-head { color: var(--dim); margin-bottom: 6px; }
+.disks-head span { font-size: 12px; }
+#disk-table { width: 100%; border-collapse: collapse; }
+#disk-table td { padding: 3px 8px 3px 0; }
+#disk-table td.name { font: 13px/1.5 ui-monospace, monospace; word-break: break-all; }
+#disk-table td.size { color: var(--dim); text-align: right; white-space: nowrap; }
+#disk-table tr.slotted td.name { color: var(--accent); }
+#disk-table .builtin { color: var(--dim); font-size: 12px; }
 .notes {
 	max-width: 900px;
 	color: var(--dim);
@@ -103,16 +119,29 @@ canvas {
 		<select id="machine"></select>
 	</span>
 	<span>
+		<label for="sound">音源</label>
+		<select id="sound"></select>
+	</span>
+	<span>
+		<label for="fmcore">FMコア</label>
+		<select id="fmcore"></select>
+	</span>
+	<span>
 		<label for="disk">ディスクを追加</label>
 		<input type="file" id="disk" multiple
 		       accept=".d88,.d98,.fdi,.hdm,.xdf,.2hd,.nfd,.fdd,.img,.ima,.hdi,.nhd,.thd">
 	</span>
-	<button id="reset" hidden>リセット</button>
+	<button id="reboot">この構成で再起動</button>
 </header>
 
 <main>
 	<div id="screen-wrap"><canvas id="canvas" tabindex="0" width="640" height="400"></canvas></div>
 	<div id="status">起動しています…</div>
+
+	<div id="disks">
+		<div class="disks-head">ディスク <span id="disks-note"></span></div>
+		<table id="disk-table"></table>
+	</div>
 
 	<div class="notes">
 		<h2>キー操作</h2>
@@ -128,8 +157,11 @@ canvas {
 			<kbd>F5</kbd> を押すと CONFIG.SYS を読まずに素の状態で起動します。
 		</p>
 		<p>
-			自分のディスクイメージを使うには、上の「ディスクを追加」で選んでから
-			<kbd>F11</kbd> のメニューで FDD/HDD に割り当ててください。
+			自分のディスクイメージは「ディスクを追加」で登録してください。ブラウザの
+			IndexedDB に保存されるのでリロードしても消えません。下のディスク一覧で
+			FDD1 / FDD2 を選び、「この構成で再起動」を押すとそのディスクから起動します。
+			実行中に入れ替えたい場合は <kbd>F11</kbd> のメニューからも選べます
+			（登録済みイメージは全部 <code>/disk</code> に置かれています）。
 			ファイルはブラウザの中だけに置かれ、どこにも送信されません。
 		</p>
 
@@ -144,162 +176,7 @@ canvas {
 	</div>
 </main>
 
-<script>
-const MACHINES = {
-	dx2: {
-		label: 'PC-9801DX2 相当 (80286 12MHz)',
-		js: 'emnp2kai_sdl2.js',
-		cfg: 'np2kai.cfg',
-		section: 'NekoProjectIIkai',
-		// PC-9801DX: 80286-12MHz, 640KB + 増設 1MB, 音源は PC-9801-26K 増設想定.
-		// clk_base 2.4576MHz x clk_mult 5 = 12.288MHz.
-		settings: {
-			pc_model: 'VX',
-			clk_base: '2457600',
-			clk_mult: '5',
-			ExMemory: '1',
-			SNDboard: '02',
-			fontfile: '/font.rom',
-			FDDRIVE1: 'true',
-			FDDRIVE2: 'true',
-			FDDRIVE3: 'false',
-			FDDRIVE4: 'false',
-		},
-	},
-	ia32: {
-		label: 'PC-9821 相当 (IA-32)',
-		js: 'emnp21kai_sdl2.js',
-		cfg: 'np21kai.cfg',
-		section: 'NekoProject21kai',
-		settings: {
-			pc_model: 'VX',
-			clk_base: '2457600',
-			clk_mult: '20',
-			ExMemory: '13',
-			SNDboard: '04',
-			fontfile: '/font.rom',
-			FDDRIVE1: 'true',
-			FDDRIVE2: 'true',
-			FDDRIVE3: 'false',
-			FDDRIVE4: 'false',
-		},
-	},
-};
-
-const BOOT_DISK = 'disk/fd98_2hd.img';
-const FONT_ROM = 'bios/font.rom';
-
-const $ = (id) => document.getElementById(id);
-const statusEl = $('status');
-
-function setStatus(text, isError) {
-	statusEl.textContent = text;
-	statusEl.classList.toggle('err', !!isError);
-}
-
-function buildCfg(machine, haveFont) {
-	const lines = ['[' + machine.section + ']'];
-	for (const [key, value] of Object.entries(machine.settings)) {
-		if (key === 'fontfile' && !haveFont) continue;
-		lines.push(key + '=' + value);
-	}
-	return lines.join('\n') + '\n';
-}
-
-async function fetchBytes(url) {
-	try {
-		const res = await fetch(url);
-		if (!res.ok) throw new Error('HTTP ' + res.status);
-		return new Uint8Array(await res.arrayBuffer());
-	} catch (err) {
-		console.warn(url + ' unavailable:', err);
-		return null;
-	}
-}
-
-function currentMachineKey() {
-	const key = new URLSearchParams(location.search).get('machine');
-	return MACHINES[key] ? key : 'dx2';
-}
-
-// ---- machine selector -----------------------------------------------------
-const machineSel = $('machine');
-for (const [key, machine] of Object.entries(MACHINES)) {
-	machineSel.add(new Option(machine.label, key));
-}
-machineSel.value = currentMachineKey();
-machineSel.addEventListener('change', () => {
-	location.search = '?machine=' + machineSel.value;
-});
-
-$('reset').addEventListener('click', () => location.reload());
-
-// ---- boot -----------------------------------------------------------------
-async function boot() {
-	const key = currentMachineKey();
-	const machine = MACHINES[key];
-	const canvas = $('canvas');
-
-	setStatus('フォントとディスクを読み込んでいます…');
-	// Neither is fatal: without the font only the built-in ANK font is there
-	// and kanji stay blank, and without the image FDD1 just starts empty.
-	const [fontRom, bootImage] = await Promise.all([
-		fetchBytes(FONT_ROM),
-		fetchBytes(BOOT_DISK),
-	]);
-
-	const args = [];
-	window.Module = {
-		canvas,
-		arguments: args,
-		preRun: [function () {
-			const FS = window.Module.FS;
-			// font_load() picks its loader from the basename, so the font has
-			// to be called font.rom.
-			if (fontRom) FS.writeFile('/font.rom', fontRom);
-			FS.writeFile('/' + machine.cfg, buildCfg(machine, !!fontRom));
-			FS.mkdir('/disk');
-			if (bootImage) {
-				FS.writeFile('/disk/fd98_2hd.img', bootImage);
-				args.push('/disk/fd98_2hd.img');
-			}
-		}],
-		print: (text) => console.log(text),
-		printErr: (text) => console.warn(text),
-		setStatus: (text) => { if (text) setStatus(text); },
-		onRuntimeInitialized: () => {
-			setStatus(machine.label + ' - 画面をクリックしてからキー入力してください');
-			$('reset').hidden = false;
-			canvas.focus();
-		},
-	};
-
-	setStatus('エミュレータを読み込んでいます (' + machine.js + ')…');
-	const script = document.createElement('script');
-	script.src = machine.js;
-	script.onerror = () => setStatus(machine.js + ' を読み込めませんでした。', true);
-	document.body.appendChild(script);
-}
-
-// ---- adding disk images at runtime ---------------------------------------
-$('disk').addEventListener('change', async (event) => {
-	const files = [...event.target.files];
-	if (!files.length) return;
-	const FS = window.Module && window.Module.FS;
-	if (!FS) {
-		setStatus('まだ起動中です。少し待ってからもう一度選んでください。', true);
-		return;
-	}
-	for (const file of files) {
-		const bytes = new Uint8Array(await file.arrayBuffer());
-		FS.writeFile('/disk/' + file.name, bytes);
-	}
-	setStatus(files.map((f) => f.name).join(', ') + ' を /disk に置きました。F11 のメニューから選んでください。');
-	$('canvas').focus();
-});
-
-boot();
-</script>
+<script src="np2wasm.js"></script>
 
 </body>
 </html>
