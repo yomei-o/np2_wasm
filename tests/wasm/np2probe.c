@@ -129,3 +129,21 @@ void np2probe_key(int code, int down)
 {
 	keystat_senddata((REG8)(down ? (code & 0x7f) : ((code & 0x7f) | 0x80)));
 }
+
+/* Emulated cycles executed so far. np2 accumulates into CPU_CLOCK per frame
+ * slice, so this is the same expression sound_sync() uses to work out how much
+ * emulated time has passed. Divide the delta by wall-clock time to get the
+ * speed the machine is actually running at; the DX2 profile asks for
+ * 2.4576MHz x 5 = 12.288MHz. */
+EMSCRIPTEN_KEEPALIVE
+double np2probe_cycles(void)
+{
+	return (double)CPU_CLOCK + (double)CPU_BASECLOCK - (double)CPU_REMCLOCK;
+}
+
+/* What the config asked for, for comparison. */
+EMSCRIPTEN_KEEPALIVE
+double np2probe_targethz(void)
+{
+	return (double)pccore.realclock;
+}

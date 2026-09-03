@@ -147,6 +147,6 @@ target_compile_options(np2kai_SDL2 PRIVATE -fwrapv-pointer)
 target_link_options(np2kai_SDL2 INTERFACE
 	"SHELL:-s USE_SDL=0"
 	"SHELL:-s GL_ENABLE_GET_PROC_ADDRESS=1"
-	"SHELL:-s EXPORTED_RUNTIME_METHODS=['createContext','FS','callMain']"
+	"SHELL:-s EXPORTED_RUNTIME_METHODS=['createContext','FS','callMain','ccall']"
 )
 add_library(SDL2::SDL2 ALIAS np2kai_SDL2)

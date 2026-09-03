@@ -445,6 +445,76 @@ $('mkhdd').addEventListener('click', async () => {
 	}
 });
 
+// ---------------------------------------------------------------- perf meter
+// "It feels slow" is not something you can act on. np2wasm_cycles() in
+// sdl/em/np2wasm_api.c reports emulated cycles, so this can say whether the
+// machine is keeping up with the clock the config asked for, and separately
+// whether the browser is getting a chance to paint.
+const PERF_KEY = 'np2wasm.perf';
+
+function startPerfMeter() {
+	const el = $('perf');
+	const cycles = () => window.Module.ccall('np2wasm_cycles', 'number', [], []);
+	const targetHz = () => window.Module.ccall('np2wasm_targethz', 'number', [], []);
+
+	let last = null;
+	let frames = 0;
+	let worstGap = 0;
+	let lastFrame = performance.now();
+
+	function onFrame(now) {
+		frames++;
+		worstGap = Math.max(worstGap, now - lastFrame);
+		lastFrame = now;
+		requestAnimationFrame(onFrame);
+	}
+	requestAnimationFrame(onFrame);
+
+	setInterval(() => {
+		let c, target;
+		try {
+			c = cycles();
+			target = targetHz();
+		} catch (err) {
+			return;                     // not up yet
+		}
+		const now = performance.now();
+		if (last) {
+			const dt = (now - last.now) / 1000;
+			const mhz = (c - last.c) / dt / 1e6;
+			const pct = target ? (mhz * 1e6 / target * 100) : 0;
+			const fps = frames / dt;
+			const cls = pct >= 90 ? '' : pct >= 60 ? 'warn' : 'bad';
+			el.textContent = '';
+			const add = (label, value, klass) => {
+				const span = document.createElement('span');
+				if (klass) span.className = klass;
+				span.append(label + ' ');
+				const b = document.createElement('b');
+				b.textContent = value;
+				span.appendChild(b);
+				el.appendChild(span);
+			};
+			add('速度', mhz.toFixed(2) + ' MHz / ' + (target / 1e6).toFixed(2)
+			           + ' MHz = ' + pct.toFixed(0) + '%', cls);
+			add('描画', fps.toFixed(0) + ' fps');
+			add('最悪フレーム間隔', worstGap.toFixed(0) + ' ms',
+			    worstGap > 100 ? 'bad' : worstGap > 40 ? 'warn' : '');
+		}
+		last = { now, c };
+		frames = 0;
+		worstGap = 0;
+	}, 1000);
+}
+
+const perfToggle = $('perftoggle');
+perfToggle.checked = localStorage.getItem(PERF_KEY) === '1';
+$('perf').hidden = !perfToggle.checked;
+perfToggle.addEventListener('change', () => {
+	try { localStorage.setItem(PERF_KEY, perfToggle.checked ? '1' : '0'); } catch (err) {}
+	$('perf').hidden = !perfToggle.checked;
+});
+
 // --------------------------------------------------------------------- boot
 async function boot() {
 	const machine = MACHINES[currentMachineKey()];
@@ -490,10 +560,15 @@ async function boot() {
 				FS.writeFile('/' + name.toUpperCase(), rhythm[i]);
 			});
 			FS.mkdir('/disk');
-			// Every known image goes into /disk, in or out of a drive, so the
-			// F11 menu can swap disks while running.
+			// Images in a drive always go in. Others go in too so the F11
+			// menu can swap them mid-run, but only the small ones - copying
+			// an unmounted 100MB hard disk into MEMFS on every load costs
+			// seconds and hundreds of megabytes for nothing.
+			const SWAPPABLE_MAX = 4 * 1024 * 1024;
 			for (const [name, bytes] of byName) {
-				FS.writeFile('/disk/' + name, bytes);
+				if (mounted.includes(name) || bytes.length <= SWAPPABLE_MAX) {
+					FS.writeFile('/disk/' + name, bytes);
+				}
 			}
 			FS.writeFile('/' + machine.cfg,
 			             buildCfg(machine, !!fontRom, slots, byName));

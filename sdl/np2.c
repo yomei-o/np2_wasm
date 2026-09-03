@@ -1,4 +1,7 @@
 #include <compiler.h>
+#if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
+#include "em/np2wasm_api.h"
+#endif
 #if defined(__LIBRETRO__)
 #include	"file_stream.h"
 #endif
@@ -823,8 +826,12 @@ static void np2exec()
 
 		taskmng_rol();
 #if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
-//		emscripten_sleep_with_yield(0);
-		emscripten_sleep(0);
+		/* Not emscripten_sleep(0): that goes through setTimeout, which a
+		 * browser clamps to 4ms once nested, and at the ~66 yields a second
+		 * this loop performs that threw away a quarter of every second.
+		 * np2wasm_yield() uses a MessageChannel instead - still a proper
+		 * turn for the browser, no minimum delay. */
+		np2wasm_yield();
 #endif
 		if (np2oscfg.NOWAIT) {
 			joymng_sync();

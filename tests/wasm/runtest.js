@@ -112,6 +112,7 @@ function parseKeyScript(spec) {
 
 const mountArgs = [];
 let mod = null;
+let speedStart = null;
 let crashed = null;
 
 process.on('uncaughtException', (e) => {
@@ -246,6 +247,13 @@ createNP2({
   printErr: (t) => console.log('[err] ' + t),
 }).then((M) => {
   mod = M;
+  // Sample the emulated cycle counter so the run reports the speed the
+  // machine actually reached, not just that it did not crash.
+  const readCycles = () => M.ccall('np2probe_cycles', 'number', [], []);
+  setTimeout(() => {
+    const t0 = Date.now(), c0 = readCycles();
+    speedStart = { t: t0, c: c0 };
+  }, Number(process.env.SPEED_DELAY || 5000));
   const script = parseKeyScript(process.env.KEYS);
   const tap = (code) => {
     M.ccall('np2probe_key', null, ['number', 'number'], [code, 1]);
@@ -322,6 +330,15 @@ setTimeout(() => {
     ? 'EGC: guest wrote ' + touched.join(', ') + ' -> blitter in use'
     : 'EGC: all registers still at reset defaults -> not used in this run');
   const caps = mod.ccall('np2probe_rhythmcaps', 'number', [], []);
+  if (speedStart) {
+    const dt = (Date.now() - speedStart.t) / 1000;
+    const dc = mod.ccall('np2probe_cycles', 'number', [], []) - speedStart.c;
+    const target = mod.ccall('np2probe_targethz', 'number', [], []);
+    console.log('speed: ' + (dc / dt / 1e6).toFixed(3) + ' MHz emulated over '
+                + dt.toFixed(1) + 's  (config asks for '
+                + (target / 1e6).toFixed(3) + ' MHz -> '
+                + (dc / dt / target * 100).toFixed(0) + '% of real time)');
+  }
   console.log('rhythm samples loaded: 0x' + caps.toString(16)
               + (caps === 0x3f ? ' (all six)' : caps === 0 ? ' (none)' : ' (partial)'));
   const wav = process.env.WAV || '';

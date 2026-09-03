@@ -74,6 +74,16 @@ canvas {
 	font-variant-numeric: tabular-nums;
 }
 #status.err { color: #ff8a8a; }
+#perf {
+	font: 12px/1.6 ui-monospace, monospace;
+	color: var(--dim);
+	display: flex;
+	gap: 18px;
+	flex-wrap: wrap;
+}
+#perf b { color: var(--fg); font-weight: 600; }
+#perf .warn b { color: #ffcf6a; }
+#perf .bad b { color: #ff8a8a; }
 #disks {
 	width: 100%;
 	max-width: 900px;
@@ -138,12 +148,14 @@ canvas {
 		<select id="hddsize"></select>
 		<button id="mkhdd" title="PC-98 領域確保 + FAT16 フォーマット済みの SCSI イメージを作る">HDDイメージ作成</button>
 	</span>
+	<label><input type="checkbox" id="perftoggle"> 速度表示</label>
 	<button id="reboot">この構成で再起動</button>
 </header>
 
 <main>
 	<div id="screen-wrap"><canvas id="canvas" tabindex="0" width="640" height="400"></canvas></div>
 	<div id="status">起動しています…</div>
+	<div id="perf" hidden></div>
 
 	<div id="disks">
 		<div class="disks-head">ディスク <span id="disks-note"></span></div>

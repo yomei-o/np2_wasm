@@ -2,6 +2,9 @@
 #define _POSIX_C_SOURCE 199309L
 #endif
 #include	<compiler.h>
+#if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
+#include	"em/np2wasm_api.h"
+#endif
 #include	"inputmng.h"
 #include	"taskmng.h"
 #include	"kbtrans.h"
@@ -346,8 +349,12 @@ BOOL taskmng_sleep(UINT32 tick) {
 	while((task_avail) && ((GETTICK() - base) < tick)) {
 		taskmng_rol();
 #if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
-//		emscripten_sleep_with_yield(1);
-		emscripten_sleep(1);
+		/* This is the frame limiter: wait until GETTICK() catches up.
+		 * emscripten_sleep(1) cannot do it, because a browser clamps the
+		 * setTimeout it unwinds through to 4ms and so overshoots every
+		 * 1ms wait by 3ms. Yield with no minimum delay instead and let
+		 * the loop condition decide when to stop. */
+		np2wasm_yield();
 #else
 		NP2_Sleep_ms(1);
 #endif
