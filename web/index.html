@@ -135,10 +135,11 @@ canvas {
 
 		<h2>BIOS ROM について</h2>
 		<p>
-			NP2kai は ITF ROM と ANK フォントを内蔵しているので、実機の ROM なしで動きます。
-			実機の <code>font.rom</code> を入れると漢字が表示され、<code>sound.rom</code> と
-			<code>2608_*.wav</code> を入れると FM 音源とリズム音源の再現が上がりますが、
-			いずれも著作権物のためここには含まれていません。
+			NP2kai は ITF ROM を内蔵しているので、実機の BIOS ROM なしで動きます。
+			漢字表示用の <code>font.rom</code> はフリーフォントから作られたものを同梱しています。
+			<code>sound.rom</code>（PC-9801-26K/86 のサウンド BIOS）と <code>2608_*.wav</code>
+			（OPNA リズム音源）を入れると音の再現が上がりますが、こちらは著作権物のため
+			含まれていません。
 		</p>
 	</div>
 </main>
@@ -158,6 +159,7 @@ const MACHINES = {
 			clk_mult: '5',
 			ExMemory: '1',
 			SNDboard: '02',
+			fontfile: '/font.rom',
 		},
 	},
 	ia32: {
@@ -171,11 +173,13 @@ const MACHINES = {
 			clk_mult: '20',
 			ExMemory: '13',
 			SNDboard: '04',
+			fontfile: '/font.rom',
 		},
 	},
 };
 
 const BOOT_DISK = 'disk/fd98_2hd.img';
+const FONT_ROM = 'bios/font.rom';
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -185,12 +189,24 @@ function setStatus(text, isError) {
 	statusEl.classList.toggle('err', !!isError);
 }
 
-function buildCfg(machine) {
+function buildCfg(machine, haveFont) {
 	const lines = ['[' + machine.section + ']'];
 	for (const [key, value] of Object.entries(machine.settings)) {
+		if (key === 'fontfile' && !haveFont) continue;
 		lines.push(key + '=' + value);
 	}
 	return lines.join('\n') + '\n';
+}
+
+async function fetchBytes(url) {
+	try {
+		const res = await fetch(url);
+		if (!res.ok) throw new Error('HTTP ' + res.status);
+		return new Uint8Array(await res.arrayBuffer());
+	} catch (err) {
+		console.warn(url + ' unavailable:', err);
+		return null;
+	}
 }
 
 function currentMachineKey() {
@@ -216,16 +232,13 @@ async function boot() {
 	const machine = MACHINES[key];
 	const canvas = $('canvas');
 
-	setStatus('FreeDOS(98) のディスクを読み込んでいます…');
-	let bootImage = null;
-	try {
-		const res = await fetch(BOOT_DISK);
-		if (!res.ok) throw new Error('HTTP ' + res.status);
-		bootImage = new Uint8Array(await res.arrayBuffer());
-	} catch (err) {
-		// Not fatal - the emulator still boots, it just has no disk in FDD1.
-		console.warn('boot disk unavailable:', err);
-	}
+	setStatus('フォントとディスクを読み込んでいます…');
+	// Neither is fatal: without the font only the built-in ANK font is there
+	// and kanji stay blank, and without the image FDD1 just starts empty.
+	const [fontRom, bootImage] = await Promise.all([
+		fetchBytes(FONT_ROM),
+		fetchBytes(BOOT_DISK),
+	]);
 
 	const args = [];
 	window.Module = {
@@ -233,7 +246,10 @@ async function boot() {
 		arguments: args,
 		preRun: [function () {
 			const FS = window.Module.FS;
-			FS.writeFile('/' + machine.cfg, buildCfg(machine));
+			// font_load() picks its loader from the basename, so the font has
+			// to be called font.rom.
+			if (fontRom) FS.writeFile('/font.rom', fontRom);
+			FS.writeFile('/' + machine.cfg, buildCfg(machine, !!fontRom));
 			FS.mkdir('/disk');
 			if (bootImage) {
 				FS.writeFile('/disk/fd98_2hd.img', bootImage);
