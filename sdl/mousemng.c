@@ -4,6 +4,12 @@
 MOUSEMNG	mousemng;
 #if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
 int captured=0;
+#if USE_SDL >= 2
+extern SDL_Window	*s_window;		/* defined in scrnmng.c */
+#define NP2_MOUSE_WINDOW	s_window
+#else
+#define NP2_MOUSE_WINDOW	NULL
+#endif
 #endif
 
 UINT8 mousemng_getstat(SINT16 *x, SINT16 *y, int clear) {
@@ -27,11 +33,11 @@ static void mousecapture(BOOL capture) {
 #else
 		SDL_WM_GrabInput(SDL_GRAB_ON);
 #endif
-		mousemng_hidecursor();
+		mousemng_hidecursor(NP2_MOUSE_WINDOW);
 	}	
 	else
 	{
-		mousemng_showcursor();
+		mousemng_showcursor(NP2_MOUSE_WINDOW);
 #if USE_SDL >= 2
 		SDL_CaptureMouse(FALSE);
 #else
@@ -193,7 +199,7 @@ void mousemng_showcursor(SDL_Window *window) {
 #if !defined(DEBUG)
 #if defined(EMSCRIPTEN) && !defined(__LIBRETRO__)
 #if USE_SDL >= 3
-	SDL_HidrCursor();
+	SDL_HideCursor();
 #else
 	SDL_ShowCursor(SDL_ENABLE);
 #endif
