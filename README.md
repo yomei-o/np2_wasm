@@ -3,6 +3,16 @@ Jun 12, 2026<br>
 
 NP2kai is a PC-9801 series emulator<br>
 
+## Try it in the browser
+
+**https://yomei-o.github.io/np2_wasm/**
+
+This fork exists to keep the Emscripten (wasm) port building and running. It
+boots [FreeDOS(98)](https://github.com/lpproj/fdkernel) from a floppy image
+with no BIOS ROM, and everything the wasm build links against - SDL2, libpng,
+zlib - is vendored under `deps/`, so `scripts/build-wasm.sh` needs nothing but
+the Emscripten SDK. See the Emscripten section below.
+
 ![](https://img.shields.io/github/tag/AZO234/NP2kai.svg)
 
 [![BuyMeACoffee](https://img.shields.io/badge/-Buy%20Me%20a%20Coffee-ffdd00?style=flat-square&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/azo234)
